@@ -7,7 +7,7 @@ class DTN(object):
 
     def __init__(self, mode='train',
                  embedding_size = 64,
-                 vocab_size=10000,
+                 vocab_size=300,
                  max_seq_len=64,
                  hidden_size=128,
                  num_classes=2,
@@ -292,9 +292,9 @@ class DTN(object):
             self.f_loss_src = tf.reduce_mean(tf.square(self.fx.c - self.fgfx.c)) * 15.0
 
             # optimizer
-            self.d_optimizer_src = tf.train.AdamOptimizer(self.learning_rate)
-            self.g_optimizer_src = tf.train.AdamOptimizer(self.learning_rate)
-            self.f_optimizer_src = tf.train.AdamOptimizer(self.learning_rate)
+            self.d_optimizer_src = tf.train.AdamOptimizer(self.learning_rate, name='adam_d_src')
+            self.g_optimizer_src = tf.train.AdamOptimizer(self.learning_rate, name='adam_g_src')
+            self.f_optimizer_src = tf.train.AdamOptimizer(self.learning_rate, name='adam_f_src')
 
             t_vars = tf.trainable_variables()
             d_vars = [var for var in t_vars if 'discriminator' in var.name]
@@ -302,7 +302,7 @@ class DTN(object):
             f_vars = [var for var in t_vars if 'content_extractor' in var.name]
 
             # train op
-            with tf.variable_scope('source_train_op'):
+            with tf.name_scope('source_train_op'):
                 self.d_train_op_src = slim.learning.create_train_op(total_loss=self.d_loss_src,
                                                                     optimizer=self.d_optimizer_src,
                                                                     variables_to_train=d_vars)
@@ -317,8 +317,8 @@ class DTN(object):
             d_loss_src_summary = tf.summary.scalar('src_d_loss', self.d_loss_src)
             g_loss_src_summary = tf.summary.scalar('src_g_loss', self.g_loss_src)
             f_loss_src_summary = tf.summary.scalar('src_f_loss', self.f_loss_src)
-            origin_texts_summary = tf.summary.scalar('src_origin_texts', self.texts)
-            sampled_texts_summary = tf.summary.scalar('src_sampled_texts', self.fake_texts)
+            origin_texts_summary = tf.summary.histogram('src_origin_texts', self.texts)
+            sampled_texts_summary = tf.summary.histogram('src_sampled_texts', self.fake_texts)
             self.summary_op_src = tf.summary.merge([d_loss_src_summary, g_loss_src_summary,
                                                     f_loss_src_summary, origin_texts_summary,
                                                     sampled_texts_summary])
@@ -346,11 +346,11 @@ class DTN(object):
             self.g_loss_trg = self.g_loss_fake_trg + self.g_loss_const_trg
 
             # optimizer
-            self.d_optimizer_trg = tf.train.AdamOptimizer(self.learning_rate)
-            self.g_optimizer_trg = tf.train.AdamOptimizer(self.learning_rate)
+            self.d_optimizer_trg = tf.train.AdamOptimizer(self.learning_rate, name='adam_d_trg')
+            self.g_optimizer_trg = tf.train.AdamOptimizer(self.learning_rate, name='adam_d_trg')
 
             # train op
-            with tf.variable_scope('trg_train_op'):
+            with tf.name_scope('target_train_op'):
                 self.g_train_op_trg = slim.learning.create_train_op(total_loss=self.g_loss_trg,
                                                                     optimizer=self.g_optimizer_trg,
                                                                     variables_to_train=g_vars)
@@ -367,9 +367,9 @@ class DTN(object):
             g_loss_const_trg_summary = tf.summary.scalar('trg_g_loss_const', self.g_loss_const_trg)
             g_loss_trg_summary = tf.summary.scalar('trg_g_loss', self.g_loss_trg)
 
-            origin_texts_summary = tf.summary.scalar('trg_origin_texts', self.trg_texts)
-            sampled_texts_summary = tf.summary.scalar('trg_reconstructed_texts', self.reconst_texts)
-            self.summary_op_src = tf.summary.merge([d_loss_trg_summary, g_loss_trg_summary,
+            origin_texts_summary = tf.summary.histogram('trg_origin_texts', self.trg_texts)
+            sampled_texts_summary = tf.summary.histogram('trg_reconstructed_texts', self.reconst_texts)
+            self.summary_op_trg = tf.summary.merge([d_loss_trg_summary, g_loss_trg_summary,
                                                     d_loss_fake_trg_summary, d_loss_real_trg_summary,
                                                     g_loss_fake_trg_summary, g_loss_const_trg_summary,
                                                     origin_texts_summary, sampled_texts_summary])

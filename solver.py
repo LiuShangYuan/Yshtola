@@ -13,7 +13,7 @@ class Solver(object):
 
     def __init__(self, model, batch_size=100, pretrain_iter=20000, train_iter=2000, sample_iter=100,
                  src_dir='src', trg_dir='trg', log_dir='logs', sample_save_path='sample',
-                 model_save_path='model', pretrained_model='model/src_model-13000',
+                 model_save_path='model', pretrained_model='model/src_model-2000',
                  test_model='model/dtn_1800'):
 
         self.model = model
@@ -36,7 +36,7 @@ class Solver(object):
         self.config.gpu_options.allow_growth = True
 
     def load_src_texts(self, split='train'):
-        (train_data, train_labels), (test_data, test_labels) = dataset.load_data(num_words=10000)
+        (train_data, train_labels), (test_data, test_labels) = dataset.load_data(num_words=300)
 
         train_lens = np.array([len(d) for d in train_data])
         train_data = keras.preprocessing.sequence.pad_sequences(train_data,
@@ -46,8 +46,8 @@ class Solver(object):
         train_output = train_data
         train_output_lens = np.array([self.model.max_seq_len for d in train_output])
 
-        test_data = test_data[:1000]
-        test_labels = test_labels[:1000]
+        test_data = test_data[:100]
+        test_labels = test_labels[:100]
         test_lens = np.array([len(d) for d in test_data])
 
         test_data = keras.preprocessing.sequence.pad_sequences(test_data,
@@ -69,9 +69,9 @@ class Solver(object):
             return None, None
 
     def load_trg_texts(self, split='train'):
-        _, (test_data, test_labels) = dataset.load_data(num_words=10000)
-        test_data = test_data[1000:]
-        test_labels = test_labels[1000:]
+        _, (test_data, test_labels) = dataset.load_data(num_words=300)
+        test_data = test_data[-1000:]
+        test_labels = test_labels[-1000:]
         test_lens = np.array([len(d) for d in test_data])
         test_data = keras.preprocessing.sequence.pad_sequences(test_data,
                                                                value=0,
@@ -154,8 +154,12 @@ class Solver(object):
 
             # restore variables of F
             print('Loading pretrain model F ...')
-            # restorer = tf.train.Saver()
-            # restorer.restore(sess, self.pretrained_model)
+            # variables_to_restore = slim.get_model_variables(scope='content_extractor')
+            variables = slim.get_variables_to_restore(include=['word_vector', 'content_extractor'], exclude=['optimizer_op_src'])
+            variables = [v for v in variables if 'adam' not in v.name]
+            print("=====Attention====!",[var.name for var in variables])
+            restorer = tf.train.Saver(variables)
+            restorer.restore(sess, self.pretrained_model)
             summary_writer = tf.summary.FileWriter(logdir=self.log_dir, graph=tf.get_default_graph())
             saver = tf.train.Saver()
 
@@ -166,6 +170,10 @@ class Solver(object):
                 i = step % int(semt_texts.shape[0] / self.batch_size)
                 src_texts = semt_texts[i*self.batch_size:(i+1)*self.batch_size]
                 src_text_lens = semt_lens[i*self.batch_size:(i+1)*self.batch_size]
+                # train the model for target domain T
+                j = step % int(norm_texts.shape[0] / self.batch_size)
+                trg_texts = norm_texts[j * self.batch_size:(j + 1) * self.batch_size]
+                trg_text_lens = norm_lens[j * self.batch_size:(j + 1) * self.batch_size]
 
                 feed_dict = {model.texts: src_texts,
                              model.text_lens: src_text_lens,
@@ -195,10 +203,7 @@ class Solver(object):
                     print('[Source] step: [%d/%d]  d_loss: [%.6f]  g_loss: [%.6f]  f_loss:[%.6f]' %
                           (step+1, self.train_iter, dl, gl, fl))
 
-                # train the model for target domain T
-                j = step % int(norm_texts.shape[0] / self.batch_size)
-                trg_texts = norm_texts[j*self.batch_size:(j+1)*self.batch_size]
-                trg_text_lens = norm_lens[j*self.batch_size:(j+1)*self.batch_size]
+
 
                 feed_dict = {model.trg_texts: trg_texts,
                              model.trg_text_lens: trg_text_lens,
