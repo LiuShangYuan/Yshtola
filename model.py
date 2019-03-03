@@ -7,8 +7,8 @@ class DTN(object):
 
     def __init__(self, mode='train',
                  embedding_size = 64,
-                 vocab_size=300,
-                 max_seq_len=64,
+                 vocab_size=10000,
+                 max_seq_len=32,
                  hidden_size=128,
                  num_classes=2,
                  num_filters=256,
@@ -127,7 +127,7 @@ class DTN(object):
                     decoder_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
 
                     helper = tf.contrib.seq2seq.TrainingHelper(
-                        embedding_inputs, self.output_lens, time_major=False)
+                        embedding_inputs, self.text_lens, time_major=False)
 
                     projection_layer = tf.layers.Dense(self.vocab_size, use_bias=False)
 
@@ -221,18 +221,16 @@ class DTN(object):
             self.texts = tf.placeholder(tf.int32, [None, self.max_seq_len], 'src_texts')        # batch_size x seq_len
             self.text_lens = tf.placeholder(tf.int32, [None,], 'src_text_lens')
             self.labels = tf.placeholder(tf.int64, [None,], 'src_labels')
-            self.outputs = tf.placeholder(tf.int32, [None, self.max_seq_len], 'outputs')
-            self.output_lens = tf.placeholder(tf.int32, [None,], 'output_lens')
 
             if self.extractor_type == 'autoencoder':
                 # logits
-                self.rc_logits, sampled_id = self.autoencoder_extractor(self.texts, self.text_lens)
+                self.rc_logits, self.sampled_id = self.autoencoder_extractor(self.texts, self.text_lens)
                 self.crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
-                    labels=self.outputs, logits=self.rc_logits)
-                mask_weight = tf.sequence_mask(self.output_lens, self.max_seq_len, dtype=tf.float32)
+                    labels=self.texts, logits=self.rc_logits)
+                mask_weight = tf.sequence_mask(self.text_lens, self.max_seq_len, dtype=tf.float32)
 
-                masked_sample_id = sampled_id * tf.cast(mask_weight, dtype=tf.int32)
-                masked_outputs = self.outputs * tf.cast(mask_weight, dtype=tf.int32)
+                masked_sample_id = self.sampled_id * tf.cast(mask_weight, dtype=tf.int32)
+                masked_outputs = self.texts * tf.cast(mask_weight, dtype=tf.int32)
 
                 self.correct_pred = tf.equal(masked_sample_id, masked_outputs)
                 self.accuracy = tf.reduce_mean(tf.cast(self.correct_pred, tf.float32))

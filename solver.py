@@ -5,6 +5,9 @@ import pickle
 import os
 import scipy.io
 import scipy.misc
+import json
+from tqdm import tqdm
+from nltk import word_tokenize
 
 from tensorflow import keras
 dataset = keras.datasets.imdb
@@ -13,7 +16,7 @@ class Solver(object):
 
     def __init__(self, model, batch_size=100, pretrain_iter=20000, train_iter=2000, sample_iter=100,
                  src_dir='src', trg_dir='trg', log_dir='logs', sample_save_path='sample',
-                 model_save_path='model', pretrained_model='model/src_model-2000',
+                 model_save_path='model', ids_save_path='ids', pretrained_model='model/src_model-2000',
                  test_model='model/dtn_1800'):
 
         self.model = model
@@ -29,44 +32,190 @@ class Solver(object):
 
         self.sample_save_path = sample_save_path
         self.model_save_path = model_save_path
+        self.ids_save_path = ids_save_path
         self.pretrained_model = pretrained_model
         self.test_model = test_model
 
         self.config = tf.ConfigProto()
         self.config.gpu_options.allow_growth = True
 
-    def load_src_texts(self, split='train'):
-        (train_data, train_labels), (test_data, test_labels) = dataset.load_data(num_words=300)
+        self.word2idx = {}
+        self.idx2word = []
 
-        train_lens = np.array([len(d) for d in train_data])
-        train_data = keras.preprocessing.sequence.pad_sequences(train_data,
-                                                           value=0,
-                                                           padding='post',
-                                                           maxlen=self.model.max_seq_len)
-        train_output = train_data
-        train_output_lens = np.array([self.model.max_seq_len for d in train_output])
+    def load_src_texts(self, split='train', name='amazon'):
 
-        test_data = test_data[:100]
-        test_labels = test_labels[:100]
-        test_lens = np.array([len(d) for d in test_data])
+        # Load vocabulary
+        if not tf.gfile.Exists(self.ids_save_path):
+            tf.gfile.MakeDirs(self.ids_save_path)
 
-        test_data = keras.preprocessing.sequence.pad_sequences(test_data,
-                                                           value=0,
-                                                           padding='post',
-                                                           maxlen=self.model.max_seq_len)
+        vocab_ids_path = os.path.join(self.ids_save_path, ('%s_vocabs%d.ids' % (name, self.model.vocab_size)))
 
-        test_output = test_data
-        test_output_lens = np.array([self.model.max_seq_len for d in test_output])
+        if not tf.gfile.Exists(vocab_ids_path):
+
+            print("Vocabulary file %s not found. Creating new vocabs.ids file..." % vocab_ids_path)
+
+            word2freq = {}
+
+            d_train = json.load(open('./data/amazon_train.json'))
+
+            for d in tqdm(d_train):
+                text = d[0]
+                for w in word_tokenize(text):
+                    word2freq[w] = word2freq.get(w, 0) + 1
+
+            sorted_dict = sorted(word2freq.items(), key=lambda item: item[1], reverse=True)
+            sorted_dict = sorted_dict[:self.model.vocab_size-4]
+
+            self.word2idx['<pad>'] = 0
+            self.word2idx['<unk>'] = 1
+            self.word2idx['<bos>'] = 2
+            self.word2idx['<eos>'] = 3
+            self.idx2word = ['<pad>', '<unk>', '<bos>', '<eos>']
+
+            for w, _ in sorted_dict:
+                self.word2idx[w] = len(self.word2idx)
+                self.idx2word.append(w)
+
+            # print('Top five items in idx2word:\n', [(idx, self.idx2word[idx]) for idx in range(5)])
+            # print('Top five items in word2idx:\n', [(self.idx2word[idx], self.word2idx[self.idx2word[idx]]) for idx in range(5)])
+
+            print('Save vocabularies into file %s ...' % vocab_ids_path)
+            json.dump({'word2idx': self.word2idx, 'idx2word': self.idx2word}, open(vocab_ids_path, 'w'), ensure_ascii=False)
+
+        else:
+            print('Loading vocabularies from %s ...' % vocab_ids_path)
+            d_vocab = json.load(open(vocab_ids_path))
+            self.word2idx = d_vocab['word2idx']
+            self.idx2word = d_vocab['idx2word']
+
+            # print('Top five items in idx2word:\n', [(idx, self.idx2word[idx]) for idx in range(5)])
+            # print('Top five items in word2idx:\n', [(self.idx2word[idx], self.word2idx[self.idx2word[idx]]) for idx in range(5)])
+
+        def add_special_tokens(ids):
+            ids = [2] + ids  # self.idx2word[2] == '<sos>'
+            if len(ids) > self.model.max_seq_len - 1:
+                ids = ids[:self.model.max_seq_len - 1]
+            return ids + [3]  # self.idx2word[2] == '<eos>'
 
         if split == 'train':
-            print("TRAIN_DATA_LENS:", len(train_data))
-            return train_data, train_lens, train_labels, train_output, train_output_lens
+            # Load train data
+            train_ids_path = os.path.join(self.ids_save_path, ('%s_train%d.ids' % (name, self.model.vocab_size)))
+
+            if not tf.gfile.Exists(train_ids_path):
+                print("Train.ids file %s not found. Creating new train.ids file..." % train_ids_path)
+
+                d_train = json.load(open('./data/amazon_train.json'))
+                d_train_ids = []
+
+                for text, label in tqdm(d_train):
+                    text_id = []
+                    for w in word_tokenize(text):
+                        text_id.append(self.word2idx.get(w, 1))     # self.idx2word[1] == '<unk>'
+                    d_train_ids.append((text_id, label))
+
+                print('Save train.ids into file %s ...' % train_ids_path)
+                json.dump(d_train_ids, open(train_ids_path, 'w'))
+            else:
+                print("Loading from train.ids file %s ..." % train_ids_path)
+                d_train_ids = json.load(open(train_ids_path))
+
+            train_data, train_lens, train_labels = [], [], []
+
+            for ids, label in d_train_ids:
+                ids = add_special_tokens(ids)
+                train_data.append(ids)
+                train_lens.append(len(ids))
+                train_labels.append(label)
+
+            train_data = keras.preprocessing.sequence.pad_sequences(sequences=train_data,
+                                                                    maxlen=self.model.max_seq_len,
+                                                                    padding='pre',
+                                                                    value=0)     # self.idx2word[2] == '<pad>'
+
+            train_lens = np.array(train_lens)
+            train_lens = np.array(train_lens)
+
+            print("Train data: %d sequences have been loaded." % len(train_data))
+
+            return train_data, train_lens, train_labels
+
         elif split == 'test':
-            print("TEST_DATA_LENS:", len(test_data))
-            return test_data, test_lens, test_labels, test_output, test_output_lens
-        else:
-            print("Unknown split %s" % split)
-            return None, None
+
+            # Load Test data
+            test_ids_path = os.path.join(self.ids_save_path, ('%s_test%d.ids' % (name, self.model.vocab_size)))
+
+            if not tf.gfile.Exists(test_ids_path):
+                print("Test.ids file %s not found. Creating new test.ids file..." % test_ids_path)
+
+                d_test = json.load(open('./data/amazon_test.json'))
+                d_test_ids = []
+
+                for text, label in tqdm(d_test):
+                    text_id = []
+                    for w in word_tokenize(text):
+                        text_id.append(self.word2idx.get(w, 1))  # self.idx2word[1] == '<unk>'
+                    d_test_ids.append((text_id, label))
+
+                print('Save test.ids into file %s ...' % test_ids_path)
+                json.dump(d_test_ids, open(test_ids_path, 'w'))
+            else:
+                print("Loading from test.ids file %s ..." % test_ids_path)
+                d_test_ids = json.load(open(test_ids_path))
+
+            test_data, test_lens, test_labels = [], [], []
+
+            for ids, label in d_test_ids:
+                ids = add_special_tokens(ids)
+                test_data.append(ids)
+                test_lens.append(len(ids))
+                test_labels.append(label)
+
+            test_data = keras.preprocessing.sequence.pad_sequences(sequences=test_data,
+                                                                   maxlen=self.model.max_seq_len,
+                                                                   padding='pre',
+                                                                   value=0)
+            test_lens = np.array(test_lens)
+            test_labels = np.array(test_labels)
+
+            print("Test data: %d sequences have been loaded." % len(test_data))
+            return test_data, test_lens, test_labels
+
+
+        raise NotImplementedError('Not implemented yet')
+
+        # TODO： Load training data & test data
+
+        # (train_data, train_labels), (test_data, test_labels) = dataset.load_data(num_words=300)
+        #
+        # train_lens = np.array([len(d) for d in train_data])
+        # train_data = keras.preprocessing.sequence.pad_sequences(train_data,
+        #                                                    value=0,
+        #                                                    padding='post',
+        #                                                    maxlen=self.model.max_seq_len)
+        # train_output = train_data
+        # train_output_lens = np.array([self.model.max_seq_len for d in train_output])
+        #
+        # test_data = test_data[:100]
+        # test_labels = test_labels[:100]
+        # test_lens = np.array([len(d) for d in test_data])
+        #
+        # test_data = keras.preprocessing.sequence.pad_sequences(test_data,
+        #                                                    value=0,
+        #                                                    padding='post',
+        #                                                    maxlen=self.model.max_seq_len)
+        #
+        # test_output = test_data
+        # test_output_lens = np.array([self.model.max_seq_len for d in test_output])
+        #
+        # if split == 'train':
+        #     print("TRAIN_DATA_LENS:", len(train_data))
+        #     return train_data, train_lens, train_labels, train_output, train_output_lens
+        # elif split == 'test':
+        #     print("TEST_DATA_LENS:", len(test_data))
+        #     return test_data, test_lens, test_labels, test_output, test_output_lens
+        # else:
+        #     print("Unknown split %s" % split)
+        #     return None, None
 
     def load_trg_texts(self, split='train'):
         _, (test_data, test_labels) = dataset.load_data(num_words=300)
@@ -83,8 +232,8 @@ class Solver(object):
         return test_data, test_lens, test_labels, test_output, test_output_lens
 
     def pretrain(self):
-        train_texts, train_lens, train_labels, train_outs, train_out_lens = self.load_src_texts(split='train')
-        test_texts, test_lens, test_labels, test_outs, test_out_lens = self.load_src_texts(split='test')
+        train_texts, train_lens, train_labels = self.load_src_texts(split='train')
+        test_texts, test_lens, test_labels = self.load_src_texts(split='test')
 
         model = self.model
         model.build_model()
@@ -102,26 +251,20 @@ class Solver(object):
                 batch_texts = train_texts[i*self.batch_size: (i+1)*self.batch_size]
                 batch_text_lens = train_lens[i*self.batch_size: (i+1)*self.batch_size]
                 batch_labels = train_labels[i*self.batch_size: (i+1)*self.batch_size]
-                batch_outputs = train_outs[i*self.batch_size: (i+1)*self.batch_size]
-                batch_out_lens = train_out_lens[i*self.batch_size: (i+1)*self.batch_size]
                 feed_dict = {model.texts: batch_texts,
                              model.text_lens: batch_text_lens,
-                             model.labels: batch_labels,
-                             model.outputs:batch_outputs,
-                             model.output_lens:batch_out_lens}
+                             model.labels: batch_labels}
                 sess.run(model.train_op, feed_dict)
 
                 if (step + 1) % 10 == 0:
                     summary, l, acc = sess.run([model.summary_op, model.loss, model.accuracy], feed_dict)     # C
                     # summary, l = sess.run([model.summary_op, model.loss], feed_dict)
-                    # rand_idx
+                    rand_idx = np.random.permutation(test_texts.shape[0])[:self.batch_size]
                     test_acc, _ = sess.run(fetches=[model.accuracy, model.loss],                              # C
                     # loss =sess.run(model.loss,
-                                           feed_dict={model.texts: test_texts,
-                                                      model.text_lens: test_lens,
-                                                      model.labels: test_labels,
-                                                      model.outputs: test_outs,
-                                                      model.output_lens: test_out_lens})
+                                           feed_dict={model.texts: test_texts[rand_idx],
+                                                      model.text_lens: test_lens[rand_idx],
+                                                      model.labels: test_labels[rand_idx]})
                     summary_writer.add_summary(summary, step)
                     # print('Step: [%d/%d]  loss:[%.6f]  test_loss:[%.6f]' % (step+1, self.pretrain_iter, l, loss))
                     print('Step: [%d/%d]  loss: [%.6f]  train acc: [%.6f]  test acc: [%.6f]' \
@@ -130,6 +273,18 @@ class Solver(object):
                 if (step+1) % 1000 == 0:
                     saver.save(sess, os.path.join(self.model_save_path, 'src_model'), global_step=step+1)
                     print('src_model-%d saved...!' % (step+1))
+
+                    rand_idx = np.random.permutation(test_texts.shape[0])[:5]
+                    sampled_id = sess.run(fetches=model.sampled_id,
+                                          feed_dict={model.texts: test_texts[rand_idx],
+                                                     model.text_lens: test_lens[rand_idx],
+                                                     model.labels: test_labels[rand_idx]})
+                    target_id = test_texts[rand_idx]
+                    for idx in range(5):
+                        target_view = [self.idx2word[id_] for id_ in target_id[idx] if id_ != 0]
+                        sampled_view = [self.idx2word[id_] for id_ in sampled_id[idx] if id_ != 0]
+                        print("[VIEW-TARGET %d] %s" % (idx, " ".join(target_view)))
+                        print("[VIEW-SAMPLE %d] %s" % (idx, " ".join(sampled_view)))
 
 
     def train(self):
