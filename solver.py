@@ -16,7 +16,7 @@ class Solver(object):
 
     def __init__(self, model, batch_size=100, pretrain_iter=20000, train_iter=2000, sample_iter=100,
                  src_dir='src', trg_dir='trg', log_dir='logs', sample_save_path='sample',
-                 model_save_path='model', ids_save_path='ids', pretrained_model='model/src_model-2000',
+                 model_save_path='model', ids_save_path='ids', pretrained_model='model/src_model-20000',
                  test_model='model/dtn_1800'):
 
         self.model = model
@@ -41,8 +41,38 @@ class Solver(object):
 
         self.word2idx = {}
         self.idx2word = []
+        # self.trg_word2idx = {}
+        # self.trg_idx2word = []
 
-    def load_src_texts(self, split='train', name='amazon'):
+        self.stop_words, self.semt_words = [], []
+        self._load_semt_words()
+        self._load_stop_words()
+
+        self.content_words_mask = []
+
+    def _load_stop_words(self):
+        with open("./data/stop_words.dict") as fin:
+            for line in fin:
+                self.stop_words.append(line.strip())
+
+    def _load_semt_words(self):
+        with open("./data/sentiment_words.dict") as fin:
+            for line in fin:
+                self.semt_words.append(line.strip())
+
+    def _get_content_words(self):
+        for w in self.word2idx:
+            if w not in self.stop_words and w not in self.semt_words and w not in ['<pad>','<unk>','<bos>','<eos>']:
+                self.content_words_mask.append(1)
+            else:
+                self.content_words_mask.append(0)
+
+        assert len(self.content_words_mask) == len(self.idx2word)
+
+    def load_src_texts(self, split='train', name='SRC',
+                       src_train_file_path='./data/train_src.json',
+                       trg_train_file_path='./data/train_trg.json',
+                       test_file_path='./data/test_src.json'):
 
         # Load vocabulary
         if not tf.gfile.Exists(self.ids_save_path):
@@ -56,12 +86,25 @@ class Solver(object):
 
             word2freq = {}
 
-            d_train = json.load(open('./data/amazon_train.json'))
+            d_train = json.load(open(src_train_file_path))
 
             for d in tqdm(d_train):
                 text = d[0]
                 for w in word_tokenize(text):
                     word2freq[w] = word2freq.get(w, 0) + 1
+
+            # !!!!!!!!!! Should I consider the vocabularies in the target domain?
+            d_train_trg = json.load(open(trg_train_file_path))
+
+            times = max(len(d_train_trg) / len(d_train), 1.0)
+            for w in word2freq.keys():
+                word2freq[w] = word2freq[w] * times
+
+            for d in tqdm(d_train_trg):
+                text = d[0]
+                for w in word_tokenize(text):
+                    word2freq[w] = word2freq.get(w, 0) + 1
+
 
             sorted_dict = sorted(word2freq.items(), key=lambda item: item[1], reverse=True)
             sorted_dict = sorted_dict[:self.model.vocab_size-4]
@@ -76,9 +119,6 @@ class Solver(object):
                 self.word2idx[w] = len(self.word2idx)
                 self.idx2word.append(w)
 
-            # print('Top five items in idx2word:\n', [(idx, self.idx2word[idx]) for idx in range(5)])
-            # print('Top five items in word2idx:\n', [(self.idx2word[idx], self.word2idx[self.idx2word[idx]]) for idx in range(5)])
-
             print('Save vocabularies into file %s ...' % vocab_ids_path)
             json.dump({'word2idx': self.word2idx, 'idx2word': self.idx2word}, open(vocab_ids_path, 'w'), ensure_ascii=False)
 
@@ -87,9 +127,6 @@ class Solver(object):
             d_vocab = json.load(open(vocab_ids_path))
             self.word2idx = d_vocab['word2idx']
             self.idx2word = d_vocab['idx2word']
-
-            # print('Top five items in idx2word:\n', [(idx, self.idx2word[idx]) for idx in range(5)])
-            # print('Top five items in word2idx:\n', [(self.idx2word[idx], self.word2idx[self.idx2word[idx]]) for idx in range(5)])
 
         def add_special_tokens(ids):
             ids = [2] + ids  # self.idx2word[2] == '<sos>'
@@ -104,7 +141,7 @@ class Solver(object):
             if not tf.gfile.Exists(train_ids_path):
                 print("Train.ids file %s not found. Creating new train.ids file..." % train_ids_path)
 
-                d_train = json.load(open('./data/amazon_train.json'))
+                d_train = json.load(open(src_train_file_path))
                 d_train_ids = []
 
                 for text, label in tqdm(d_train):
@@ -119,13 +156,12 @@ class Solver(object):
                 print("Loading from train.ids file %s ..." % train_ids_path)
                 d_train_ids = json.load(open(train_ids_path))
 
-            train_data, train_lens, train_labels = [], [], []
+            train_data, train_lens = [], []
 
-            for ids, label in d_train_ids:
+            for ids, _ in d_train_ids:
                 ids = add_special_tokens(ids)
                 train_data.append(ids)
                 train_lens.append(len(ids))
-                train_labels.append(label)
 
             train_data = keras.preprocessing.sequence.pad_sequences(sequences=train_data,
                                                                     maxlen=self.model.max_seq_len,
@@ -133,11 +169,10 @@ class Solver(object):
                                                                     value=0)     # self.idx2word[2] == '<pad>'
 
             train_lens = np.array(train_lens)
-            train_lens = np.array(train_lens)
 
             print("Train data: %d sequences have been loaded." % len(train_data))
 
-            return train_data, train_lens, train_labels
+            return train_data, train_lens
 
         elif split == 'test':
 
@@ -147,7 +182,7 @@ class Solver(object):
             if not tf.gfile.Exists(test_ids_path):
                 print("Test.ids file %s not found. Creating new test.ids file..." % test_ids_path)
 
-                d_test = json.load(open('./data/amazon_test.json'))
+                d_test = json.load(open(test_file_path))
                 d_test_ids = []
 
                 for text, label in tqdm(d_test):
@@ -162,78 +197,77 @@ class Solver(object):
                 print("Loading from test.ids file %s ..." % test_ids_path)
                 d_test_ids = json.load(open(test_ids_path))
 
-            test_data, test_lens, test_labels = [], [], []
+            test_data, test_lens = [], []
 
-            for ids, label in d_test_ids:
+            for ids, _ in d_test_ids:
                 ids = add_special_tokens(ids)
                 test_data.append(ids)
                 test_lens.append(len(ids))
-                test_labels.append(label)
 
             test_data = keras.preprocessing.sequence.pad_sequences(sequences=test_data,
                                                                    maxlen=self.model.max_seq_len,
                                                                    padding='pre',
                                                                    value=0)
             test_lens = np.array(test_lens)
-            test_labels = np.array(test_labels)
 
             print("Test data: %d sequences have been loaded." % len(test_data))
-            return test_data, test_lens, test_labels
+            return test_data, test_lens
 
 
-        raise NotImplementedError('Not implemented yet')
+    def load_trg_texts(self, split='train', name='TRG',
+                       train_file_path='./data/train_trg.json',
+                       test_file_path='./data/test_trg.json'):
 
-        # TODO： Load training data & test data
+        def add_special_tokens(ids):
+            ids = [2] + ids  # self.idx2word[2] == '<sos>'
+            if len(ids) > self.model.max_seq_len - 1:
+                ids = ids[:self.model.max_seq_len - 1]
+            return ids + [3]  # self.idx2word[2] == '<eos>'
 
-        # (train_data, train_labels), (test_data, test_labels) = dataset.load_data(num_words=300)
-        #
-        # train_lens = np.array([len(d) for d in train_data])
-        # train_data = keras.preprocessing.sequence.pad_sequences(train_data,
-        #                                                    value=0,
-        #                                                    padding='post',
-        #                                                    maxlen=self.model.max_seq_len)
-        # train_output = train_data
-        # train_output_lens = np.array([self.model.max_seq_len for d in train_output])
-        #
-        # test_data = test_data[:100]
-        # test_labels = test_labels[:100]
-        # test_lens = np.array([len(d) for d in test_data])
-        #
-        # test_data = keras.preprocessing.sequence.pad_sequences(test_data,
-        #                                                    value=0,
-        #                                                    padding='post',
-        #                                                    maxlen=self.model.max_seq_len)
-        #
-        # test_output = test_data
-        # test_output_lens = np.array([self.model.max_seq_len for d in test_output])
-        #
-        # if split == 'train':
-        #     print("TRAIN_DATA_LENS:", len(train_data))
-        #     return train_data, train_lens, train_labels, train_output, train_output_lens
-        # elif split == 'test':
-        #     print("TEST_DATA_LENS:", len(test_data))
-        #     return test_data, test_lens, test_labels, test_output, test_output_lens
-        # else:
-        #     print("Unknown split %s" % split)
-        #     return None, None
+        if split == 'train':
+            # Load train data
+            train_ids_path = os.path.join(self.ids_save_path, ('%s_train%d.ids' % (name, self.model.vocab_size)))
 
-    def load_trg_texts(self, split='train'):
-        _, (test_data, test_labels) = dataset.load_data(num_words=300)
-        test_data = test_data[-1000:]
-        test_labels = test_labels[-1000:]
-        test_lens = np.array([len(d) for d in test_data])
-        test_data = keras.preprocessing.sequence.pad_sequences(test_data,
-                                                               value=0,
-                                                               padding='post',
-                                                               maxlen=self.model.max_seq_len)
-        test_output = test_data
-        test_output_lens = np.array([self.model.max_seq_len for d in test_output])
+            if not tf.gfile.Exists(train_ids_path):
+                print('Trg train.ids file %s not found. Create new trg train.ids file ...' % train_ids_path)
 
-        return test_data, test_lens, test_labels, test_output, test_output_lens
+                d_train = json.load(open(train_file_path))
+                d_train_ids = []
+
+                for text, label in tqdm(d_train):
+                    text_id = []
+                    for w in word_tokenize(text):
+                        text_id.append(self.word2idx.get(w, 1))     # self.idx2word[1] == '<unk>'
+                    d_train_ids.append((text_id, label))
+
+                print('Save trg train.ids into file %s ...' % train_ids_path)
+                json.dump(d_train_ids, open(train_ids_path, 'w'))
+            else:
+                print("Loading from train.ids file %s ..." % train_ids_path)
+                d_train_ids = json.load(open(train_ids_path))
+
+            train_data, train_lens = [], []
+
+            for ids, _ in d_train_ids:
+                ids = add_special_tokens(ids)
+                train_data.append(ids)
+                train_lens.append(len(ids))
+
+            train_data = keras.preprocessing.sequence.pad_sequences(sequences=train_data,
+                                                                    maxlen=self.model.max_seq_len,
+                                                                    padding='pre',
+                                                                    value=0)  # self.idx2word[2] == '<pad>'
+
+            train_lens = np.array(train_lens)
+
+            print("Train data: %d sequences have been loaded." % len(train_data))
+
+            return train_data, train_lens
+
 
     def pretrain(self):
-        train_texts, train_lens, train_labels = self.load_src_texts(split='train')
-        test_texts, test_lens, test_labels = self.load_src_texts(split='test')
+        train_texts, train_lens = self.load_src_texts(split='train')
+        test_texts, test_lens = self.load_src_texts(split='test')
 
         model = self.model
         model.build_model()
@@ -247,28 +281,25 @@ class Solver(object):
 
             for step in range(self.pretrain_iter+1):
                 i = step % num_of_batches
-                # if i == 0: shuffle
+                if i == 0:      # shuffle
+                    shuffle_idx = np.random.permutation(train_texts.shape[0])
+                    train_texts = train_texts[shuffle_idx]
+                    train_lens = train_lens[shuffle_idx]
                 batch_texts = train_texts[i*self.batch_size: (i+1)*self.batch_size]
                 batch_text_lens = train_lens[i*self.batch_size: (i+1)*self.batch_size]
-                batch_labels = train_labels[i*self.batch_size: (i+1)*self.batch_size]
                 feed_dict = {model.texts: batch_texts,
-                             model.text_lens: batch_text_lens,
-                             model.labels: batch_labels}
+                             model.text_lens: batch_text_lens}
                 sess.run(model.train_op, feed_dict)
 
                 if (step + 1) % 10 == 0:
-                    summary, l, acc = sess.run([model.summary_op, model.loss, model.accuracy], feed_dict)     # C
-                    # summary, l = sess.run([model.summary_op, model.loss], feed_dict)
+                    summary, l, acc = sess.run([model.summary_op, model.loss, model.accuracy], feed_dict)
                     rand_idx = np.random.permutation(test_texts.shape[0])[:self.batch_size]
-                    test_acc, _ = sess.run(fetches=[model.accuracy, model.loss],                              # C
-                    # loss =sess.run(model.loss,
+                    test_acc, _ = sess.run(fetches=[model.accuracy, model.loss],
                                            feed_dict={model.texts: test_texts[rand_idx],
-                                                      model.text_lens: test_lens[rand_idx],
-                                                      model.labels: test_labels[rand_idx]})
+                                                      model.text_lens: test_lens[rand_idx]})
                     summary_writer.add_summary(summary, step)
-                    # print('Step: [%d/%d]  loss:[%.6f]  test_loss:[%.6f]' % (step+1, self.pretrain_iter, l, loss))
                     print('Step: [%d/%d]  loss: [%.6f]  train acc: [%.6f]  test acc: [%.6f]' \
-                          % (step+1, self.pretrain_iter, l, acc, test_acc))           # C
+                          % (step+1, self.pretrain_iter, l, acc, test_acc))
 
                 if (step+1) % 1000 == 0:
                     saver.save(sess, os.path.join(self.model_save_path, 'src_model'), global_step=step+1)
@@ -277,8 +308,7 @@ class Solver(object):
                     rand_idx = np.random.permutation(test_texts.shape[0])[:5]
                     sampled_id = sess.run(fetches=model.sampled_id,
                                           feed_dict={model.texts: test_texts[rand_idx],
-                                                     model.text_lens: test_lens[rand_idx],
-                                                     model.labels: test_labels[rand_idx]})
+                                                     model.text_lens: test_lens[rand_idx]})
                     target_id = test_texts[rand_idx]
                     for idx in range(5):
                         target_view = [self.idx2word[id_] for id_ in target_id[idx] if id_ != 0]
@@ -289,8 +319,8 @@ class Solver(object):
 
     def train(self):
         # load dataset
-        semt_texts, semt_lens, _, _, _ = self.load_src_texts()
-        norm_texts, norm_lens, _, _, _ = self.load_trg_texts()
+        semt_texts, semt_lens = self.load_src_texts()
+        norm_texts, norm_lens = self.load_trg_texts()
 
         # build model
         model = self.model
@@ -311,15 +341,17 @@ class Solver(object):
             print('Loading pretrain model F ...')
             # variables_to_restore = slim.get_model_variables(scope='content_extractor')
             variables = slim.get_variables_to_restore(include=['word_vector', 'content_extractor'], exclude=['optimizer_op_src'])
-            variables = [v for v in variables if 'adam' not in v.name]
-            print("=====Attention====!",[var.name for var in variables])
+            variables = [v for v in variables if ('adam' not in v.name and 'trg_embedding' not in v.name)]
+            print("=====Attention====!", [var.name for var in variables])
             restorer = tf.train.Saver(variables)
             restorer.restore(sess, self.pretrained_model)
             summary_writer = tf.summary.FileWriter(logdir=self.log_dir, graph=tf.get_default_graph())
             saver = tf.train.Saver()
 
+            self._get_content_words()
+
             print('start training...!')
-            f_interval=15
+            f_interval = 5
             for step in range(self.train_iter+1):
 
                 i = step % int(semt_texts.shape[0] / self.batch_size)
@@ -362,6 +394,7 @@ class Solver(object):
 
                 feed_dict = {model.trg_texts: trg_texts,
                              model.trg_text_lens: trg_text_lens,
+                             model.content_mask: self.content_words_mask,
                              model.batch_size: self.batch_size}
 
                 sess.run(model.d_train_op_trg, feed_dict)
@@ -380,6 +413,32 @@ class Solver(object):
                     print('[Target] step: [%d/%d]  d_loss:[%.6f]  g_loss:[%.6f]' %
                           (step+1, self.train_iter, dl, gl))
 
-                if (step+1) % 200 == 0:
-                    saver.save(sess, os.path.join(self.model_save_path, 'dtn'), global_step=step+1)
-                    print('model/dtn%d saved...!' % (step+1))
+                if (step+1) % 50 == 0:
+                    # saver.save(sess, os.path.join(self.model_save_path, 'dtn'), global_step=step+1)
+                    # print('model/dtn%d saved...!' % (step+1))
+
+                    rand_idx = np.random.permutation(norm_texts.shape[0])[:5]
+
+                    sampled_id = sess.run(fetches=model.fake_texts,
+                                          feed_dict={model.texts: semt_texts[rand_idx],
+                                                     model.text_lens: semt_lens[rand_idx],
+                                                     model.batch_size: 5})
+                    target_id = semt_texts[rand_idx]
+                    for idx in range(5):
+                        target_view = [self.idx2word[id_] for id_ in target_id[idx] if id_ != 0]
+                        sampled_view = [self.idx2word[id_] for id_ in sampled_id[idx] if id_ != 0]
+                        print("[SRC VIEW-TARGET %d] %s" % (idx, " ".join(target_view)))
+                        print("[SRC VIEW-SAMPLE %d] %s" % (idx, " ".join(sampled_view)))
+
+                    sampled_id = sess.run(fetches=model.reconst_texts,
+                                          feed_dict={model.trg_texts: norm_texts[rand_idx],
+                                                     model.trg_text_lens: norm_lens[rand_idx],
+                                                     model.batch_size: 5})
+                    target_id = norm_texts[rand_idx]
+                    for idx in range(5):
+                        target_view = [self.idx2word[id_] for id_ in target_id[idx] if id_ != 0]
+                        sampled_view = [self.idx2word[id_] for id_ in sampled_id[idx] if id_ != 0]
+                        print("[TRG VIEW-TARGET %d] %s" % (idx, " ".join(target_view)))
+                        print("[TRG VIEW-SAMPLE %d] %s" % (idx, " ".join(sampled_view)))
+
+                self.model.rho = self.model.rho * 0.99

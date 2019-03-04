@@ -8,7 +8,7 @@ class DTN(object):
     def __init__(self, mode='train',
                  embedding_size = 64,
                  vocab_size=10000,
-                 max_seq_len=32,
+                 max_seq_len=35,
                  hidden_size=128,
                  num_classes=2,
                  num_filters=256,
@@ -16,7 +16,7 @@ class DTN(object):
                  keep_prob=0.9,
                  learning_rate=0.0003,
                  extractor_type='autoencoder',
-                 rho=15.0):
+                 rho=1.0):
         self.mode = mode
 
         self.embedding_size = embedding_size
@@ -40,26 +40,31 @@ class DTN(object):
                 self.embedding = tf.get_variable('embedding', [self.vocab_size, self.embedding_size])
 
 
-    def generator(self, inputs, reuse=False):
+    def generator(self, enc_states, dec_inputs, reuse=False):
         # TODO: Implement a decoder here
         if self.mode == 'train':
             if self.extractor_type == 'autoencoder':
-                with tf.device('/cpu:0'):
-                    embedding_inputs = tf.nn.embedding_lookup(self.embedding, tf.ones([self.batch_size, self.max_seq_len], dtype=tf.int32))
+                # with tf.device('/cpu:0'):
+                #     embedding_inputs = tf.nn.embedding_lookup(self.embedding, dec_inputs)
 
                 with tf.variable_scope('generator', reuse=reuse):
 
                     decoder_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
 
-                    helper = tf.contrib.seq2seq.TrainingHelper(
-                        embedding_inputs,
-                        tf.fill([self.batch_size], self.max_seq_len),
-                        time_major=False)
+                    # helper = tf.contrib.seq2seq.TrainingHelper(
+                    #     embedding_inputs,
+                    #     tf.fill([self.batch_size], self.max_seq_len),
+                    #     time_major=False)
+
+                    helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
+                        embedding=self.embedding,
+                        start_tokens=tf.tile([2], [self.batch_size]),
+                        end_token=3)
 
                     projection_layer = tf.layers.Dense(self.vocab_size, use_bias=False)
 
                     decoder = tf.contrib.seq2seq.BasicDecoder(
-                        decoder_cell, helper, inputs,
+                        decoder_cell, helper, enc_states,
                         output_layer=projection_layer)
 
                     outputs, _, _ = tf.contrib.seq2seq.dynamic_decode(
@@ -220,7 +225,7 @@ class DTN(object):
         if self.mode == 'pretrain':
             self.texts = tf.placeholder(tf.int32, [None, self.max_seq_len], 'src_texts')        # batch_size x seq_len
             self.text_lens = tf.placeholder(tf.int32, [None,], 'src_text_lens')
-            self.labels = tf.placeholder(tf.int64, [None,], 'src_labels')
+            # self.labels = tf.placeholder(tf.int64, [None,], 'src_labels')
 
             if self.extractor_type == 'autoencoder':
                 # logits
@@ -246,21 +251,22 @@ class DTN(object):
                 self.summary_op = tf.summary.merge([loss_summary, accuracy_summary])
 
             elif self.extractor_type == 'classifier':
-                # logits and accuracy
-                self.csf_logits = self.classifier_extractor(self.texts)
-                self.pred = tf.argmax(self.csf_logits, 1)
-                self.correct_pred = tf.equal(self.pred, self.labels)
-                self.accuracy = tf.reduce_mean(tf.cast(self.correct_pred, tf.float32))
-
-                # loss and train op
-                self.loss = slim.losses.sparse_softmax_cross_entropy(self.csf_logits, self.labels)
-                self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
-                self.train_op = slim.learning.create_train_op(self.loss, self.optimizer)
-
-                # summary op
-                loss_summary = tf.summary.scalar('classifier_loss', self.loss)
-                accuracy_summary = tf.summary.scalar('accuracy', self.accuracy)
-                self.summary_op = tf.summary.merge([loss_summary, accuracy_summary])
+                raise NotImplementedError('Classifier-based Not Implemented yet.')
+                # # logits and accuracy
+                # self.csf_logits = self.classifier_extractor(self.texts)
+                # self.pred = tf.argmax(self.csf_logits, 1)
+                # self.correct_pred = tf.equal(self.pred, self.labels)
+                # self.accuracy = tf.reduce_mean(tf.cast(self.correct_pred, tf.float32))
+                #
+                # # loss and train op
+                # self.loss = slim.losses.sparse_softmax_cross_entropy(self.csf_logits, self.labels)
+                # self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
+                # self.train_op = slim.learning.create_train_op(self.loss, self.optimizer)
+                #
+                # # summary op
+                # loss_summary = tf.summary.scalar('classifier_loss', self.loss)
+                # accuracy_summary = tf.summary.scalar('accuracy', self.accuracy)
+                # self.summary_op = tf.summary.merge([loss_summary, accuracy_summary])
 
         elif self.mode == 'train':
             self.texts = tf.placeholder(tf.int32, [None, self.max_seq_len], 'src_texts')
@@ -268,26 +274,31 @@ class DTN(object):
 
             self.trg_texts = tf.placeholder(tf.int32, [None, self.max_seq_len], 'trg_texts')
             self.trg_text_lens = tf.placeholder(tf.int32, [None,], 'trg_text_lens')
+            self.content_mask = tf.placeholder(tf.float32, [self.vocab_size], 'trg_content_mask')
 
             self.batch_size = tf.placeholder(tf.int32, name='batch_size')
 
             # source domain
             if self.extractor_type == 'autoencoder':
                 self.fx = self.autoencoder_extractor(self.texts, self.text_lens)
-                self.fake_texts, self.fake_texts_logits = self.generator(self.fx)
+                self.fake_texts, self.fake_texts_logits = self.generator(self.fx, dec_inputs=self.texts)
                 self.logits = self.discriminator(self.fake_texts_logits)
                 self.fgfx = self.autoencoder_extractor(self.fake_texts, self.text_lens, reuse=True)
             elif self.extractor_type == 'classifier':
                 self.fx = self.classifier_extractor(self.texts, self.text_lens)
-                self.fake_texts, self.fake_texts_logits = self.generator(self.fx)
+                self.fake_texts, self.fake_texts_logits = self.generator(self.fx, dec_inputs=self.texts)
                 self.logits = self.discriminator(self.fake_texts_logits)
                 self.fgfx = self.classifier_extractor(self.fake_texts, reuse=True)
 
 
             # loss
+            self.crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
+                labels=self.texts, logits=self.fake_texts_logits)
+            mask_weight = tf.sequence_mask(self.text_lens, self.max_seq_len, dtype=tf.float32)
+
             self.d_loss_src = slim.losses.sigmoid_cross_entropy(self.logits, tf.zeros_like(self.logits))
-            self.g_loss_src = slim.losses.sigmoid_cross_entropy(self.logits, tf.ones_like(self.logits))
-            self.f_loss_src = tf.reduce_mean(tf.square(self.fx.c - self.fgfx.c)) * 15.0
+            self.g_loss_src = slim.losses.sigmoid_cross_entropy(self.logits, tf.ones_like(self.logits)) + tf.reduce_mean(tf.reduce_sum(self.crossent * mask_weight, 1)) * self.rho
+            self.f_loss_src = tf.reduce_mean(tf.square(self.fx.c - self.fgfx.c) + tf.square(self.fx.h - self.fgfx.h)) * 15.0
 
             # optimizer
             self.d_optimizer_src = tf.train.AdamOptimizer(self.learning_rate, name='adam_d_src')
@@ -329,9 +340,16 @@ class DTN(object):
             else:
                 raise ValueError("Unknown extractor type.")
 
-            self.reconst_texts, self.reconst_texts_logits = self.generator(self.fx, reuse=True)
+            self.reconst_texts, self.reconst_texts_logits = self.generator(self.fx, dec_inputs=self.trg_texts, reuse=True)
             self.logits_fake = self.discriminator(self.reconst_texts_logits, reuse=True)
             self.logits_real = self.discriminator(tf.one_hot(self.trg_texts, self.vocab_size), reuse=True)
+
+            trg_text_oh = tf.reduce_any(tf.cast(tf.one_hot(self.trg_texts, self.vocab_size, dtype=tf.int32),tf.bool), axis=1)
+            recon_text_oh = tf.reduce_any(tf.cast(tf.one_hot(self.reconst_texts, self.vocab_size, dtype=tf.int32), tf.bool), axis=1)
+            trg_content_mask = tf.tile(input=[self.content_mask], multiples=[self.batch_size, 1])
+
+            trg_text_oh = trg_content_mask * tf.cast(trg_text_oh, tf.float32)
+            recon_text_oh = trg_content_mask * tf.cast(recon_text_oh, tf.float32)
 
 
             # loss
@@ -340,7 +358,8 @@ class DTN(object):
             self.d_loss_trg = self.d_loss_fake_trg + self.d_loss_real_trg
 
             self.g_loss_fake_trg = slim.losses.sigmoid_cross_entropy(self.logits_fake, tf.ones_like(self.logits_fake))
-            self.g_loss_const_trg = tf.reduce_mean(tf.square(tf.one_hot(self.trg_texts, self.vocab_size) - self.reconst_texts_logits)) * self.rho
+            self.g_loss_const_trg = tf.losses.sigmoid_cross_entropy(trg_text_oh, recon_text_oh)
+            # self.g_loss_const_trg = tf.reduce_mean(tf.square(tf.one_hot(self.trg_texts, self.vocab_size) - self.reconst_texts_logits)) * self.rho   # TODO: do not loss content words
             self.g_loss_trg = self.g_loss_fake_trg + self.g_loss_const_trg
 
             # optimizer

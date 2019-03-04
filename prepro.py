@@ -7,72 +7,119 @@ def parse(path):
     for l in g:
         yield eval(l)
 
-def zip2text():
-    f = open('./data/amazon_all.txt', 'w')
+
+def zip2text_src(zip_file_path='./data/reviews_VideoGames_5.json.gz',
+                 txt_file_path='./data/all_src.txt'):
+    f = open(txt_file_path, 'w')
 
     counter = 0
 
-    for d in parse('./data/reviews_Books_5.json.gz'):
+    for d in parse(zip_file_path):
 
         text_len = len(d['reviewText'].strip().split())
 
-        if text_len < 32 and (d['overall'] == 1.0 or d['overall'] == 5.0):
-            if d['overall'] == 1.0:
-                f.write(d['reviewText'].strip())
-                f.write('\t')
-                f.write('0')
-                f.write('\n')
-            elif d['overall'] == 5.0:
-                f.write(d['reviewText'].strip())
-                f.write('\t')
-                f.write('1')
-                f.write('\n')
+        if text_len < 32 and d['overall'] > 3.0:
+            f.write(d['reviewText'].strip())
+            f.write('\t')
+            f.write('0')
+            f.write('\n')
 
             counter += 1
 
     f.close()
+    print('Saved %d lines into %s' % (counter, txt_file_path))
 
-    print('Saved %d lines into ./data/amazon_all.txt' % counter)
 
-def split_dataset():
+def split_dataset_src(txt_file_path='./data/all_src.txt',
+                      train_json_path='./data/train_src.json',
+                      test_json_path='./data/test_src.json'):
+    f_train = open(train_json_path, 'w')
+    f_test = open(test_json_path, 'w')
 
-    f_train = open('./data/amazon_train.json', 'w')
-    f_test = open('./data/amazon_test.json', 'w')
+    d_list = []
 
-    d_true = []
-    d_false = []
+    with open(txt_file_path) as fin:
+        for l in fin.readlines():
+            try:
+                text, _ = l.strip().split('\t')
+            except:
+                continue
+            d_list.append((text, '0'))
 
-    with open('./data/amazon_all.txt') as fin:
+    split_len = len(d_list) // 20
+
+    d_train = d_list[:-split_len]
+    d_test = d_list[-split_len:]
+
+    print('%d samples in train_set and %d samples in test_set ...' % (len(d_train), len(d_test)))
+
+    json.dump(d_train, f_train)
+    json.dump(d_test, f_test)
+
+    f_train.close()
+    f_test.close()
+
+
+def zip2text_trg(zip_file_path='./data/reviews_Books_5.json.gz',
+                 txt_file_path='./data/all_trg.txt'):
+
+    f = open(txt_file_path, 'w')
+
+    counter = 0
+
+    for d in parse(zip_file_path):
+
+        text_len = len(d['reviewText'].strip().split())
+
+        if text_len < 32 and (d['overall'] == 1.0):
+            f.write(d['reviewText'].strip())
+            f.write('\t')
+            f.write('1')
+            f.write('\n')
+
+            counter += 1
+
+    f.close()
+    print('Saved %d lines into %s' % (counter, txt_file_path))
+
+
+def split_dataset_trg(txt_file_path='./data/all_trg.txt',
+                      train_json_path='./data/train_trg.json',
+                      test_json_path='./data/test_trg.json'):
+
+    f_train = open(train_json_path, 'w')
+    f_test = open(test_json_path, 'w')
+
+    d_list = []
+
+    with open(txt_file_path) as fin:
 
         for l in fin.readlines():
             try:
                 text, label = l.strip().split('\t')
             except:
                 continue
-            if label == '0':
-                d_false.append((text, '0'))
-            else:
-                d_true.append((text, '1'))
+            d_list.append((text, '-1'))
 
-    false_len = len(d_false)
-    true_len = len(d_true)
+    np.random.shuffle(d_list)
 
-    print('%d samples in Class:0 and %d samples in Class:1' % (false_len, true_len))
+    test_len = len(d_list) // 10
 
-    false_test_len = false_len // 100
-    true_test_len = true_len // 100
-
-    d_train = d_true[:-true_test_len] + d_false[:-false_test_len]
-    d_test = d_true[-true_test_len:] + d_false[-false_test_len:]
-
-    np.random.shuffle(d_train)
-    np.random.shuffle(d_test)
+    d_train = d_list[:-test_len]
+    d_test = d_list[-test_len:]
 
     print('%d samples in train_set and %d samples in test_set' % (len(d_train), len(d_test)))
 
     json.dump(d_train, f_train)
     json.dump(d_test, f_test)
 
+    f_train.close()
+    f_test.close()
+
+
+
 if __name__ == '__main__':
-    zip2text()
-    split_dataset()
+    zip2text_src()
+    split_dataset_src()
+    zip2text_trg()
+    split_dataset_trg()
