@@ -59,7 +59,7 @@ class DTN(object):
                     helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
                         embedding=self.embedding,
                         start_tokens=tf.tile([2], [self.batch_size]),
-                        end_token=3)
+                        end_token=10001)
 
                     projection_layer = tf.layers.Dense(self.vocab_size, use_bias=False)
 
@@ -271,10 +271,11 @@ class DTN(object):
         elif self.mode == 'train':
             self.texts = tf.placeholder(tf.int32, [None, self.max_seq_len], 'src_texts')
             self.text_lens = tf.placeholder(tf.int32, [None,], 'src_text_lens')
+            self.content_mask = tf.placeholder(tf.float32, [self.vocab_size], 'src_content_mask')
 
             self.trg_texts = tf.placeholder(tf.int32, [None, self.max_seq_len], 'trg_texts')
             self.trg_text_lens = tf.placeholder(tf.int32, [None,], 'trg_text_lens')
-            self.content_mask = tf.placeholder(tf.float32, [self.vocab_size], 'trg_content_mask')
+
 
             self.batch_size = tf.placeholder(tf.int32, name='batch_size')
 
@@ -292,12 +293,19 @@ class DTN(object):
 
 
             # loss
-            self.crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
-                labels=self.texts, logits=self.fake_texts_logits)
-            mask_weight = tf.sequence_mask(self.text_lens, self.max_seq_len, dtype=tf.float32)
+            # self.crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
+            #     labels=self.texts, logits=self.fake_texts_logits)
+            # mask_weight = tf.sequence_mask(self.text_lens, self.max_seq_len, dtype=tf.float32)
+            src_text_oh = tf.reduce_any(tf.cast(tf.one_hot(self.texts, self.vocab_size, dtype=tf.int32), tf.bool), axis=1)
+            fake_text_oh = tf.reduce_any(tf.cast(tf.one_hot(self.fake_texts, self.vocab_size, dtype=tf.int32), tf.bool), axis=1)
+            src_content_mask = tf.tile(input=[self.content_mask], multiples=[self.batch_size, 1])
+            src_text_oh = src_content_mask * tf.cast(src_text_oh, tf.float32)
+            fake_text_oh = src_content_mask * tf.cast(fake_text_oh, tf.float32)
 
             self.d_loss_src = slim.losses.sigmoid_cross_entropy(self.logits, tf.zeros_like(self.logits))
-            self.g_loss_src = slim.losses.sigmoid_cross_entropy(self.logits, tf.ones_like(self.logits)) + tf.reduce_mean(tf.reduce_sum(self.crossent * mask_weight, 1)) * self.rho
+            self.g_loss_src = slim.losses.sigmoid_cross_entropy(self.logits, tf.ones_like(self.logits)) + tf.losses.sigmoid_cross_entropy(src_text_oh, fake_text_oh) * 50.0
+            self.g_loss_src_recon = tf.losses.sigmoid_cross_entropy(src_text_oh, fake_text_oh) * 50.0
+            # + tf.reduce_mean(tf.reduce_sum(self.crossent * mask_weight, 1)) * self.rho
             self.f_loss_src = tf.reduce_mean(tf.square(self.fx.c - self.fgfx.c) + tf.square(self.fx.h - self.fgfx.h)) * 15.0
 
             # optimizer
@@ -344,12 +352,16 @@ class DTN(object):
             self.logits_fake = self.discriminator(self.reconst_texts_logits, reuse=True)
             self.logits_real = self.discriminator(tf.one_hot(self.trg_texts, self.vocab_size), reuse=True)
 
-            trg_text_oh = tf.reduce_any(tf.cast(tf.one_hot(self.trg_texts, self.vocab_size, dtype=tf.int32),tf.bool), axis=1)
-            recon_text_oh = tf.reduce_any(tf.cast(tf.one_hot(self.reconst_texts, self.vocab_size, dtype=tf.int32), tf.bool), axis=1)
-            trg_content_mask = tf.tile(input=[self.content_mask], multiples=[self.batch_size, 1])
+            # trg_text_oh = tf.reduce_any(tf.cast(tf.one_hot(self.trg_texts, self.vocab_size, dtype=tf.int32),tf.bool), axis=1)
+            # recon_text_oh = tf.reduce_any(tf.cast(tf.one_hot(self.reconst_texts, self.vocab_size, dtype=tf.int32), tf.bool), axis=1)
+            # trg_content_mask = tf.tile(input=[self.content_mask], multiples=[self.batch_size, 1])
 
-            trg_text_oh = trg_content_mask * tf.cast(trg_text_oh, tf.float32)
-            recon_text_oh = trg_content_mask * tf.cast(recon_text_oh, tf.float32)
+            # trg_text_oh = trg_content_mask * tf.cast(trg_text_oh, tf.float32)
+            # recon_text_oh = trg_content_mask * tf.cast(recon_text_oh, tf.float32)
+
+            trg_crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
+                labels=self.trg_texts, logits=self.reconst_texts_logits)
+            trg_mask_weight = tf.sequence_mask(self.trg_text_lens, self.max_seq_len, dtype=tf.float32)
 
 
             # loss
@@ -358,7 +370,7 @@ class DTN(object):
             self.d_loss_trg = self.d_loss_fake_trg + self.d_loss_real_trg
 
             self.g_loss_fake_trg = slim.losses.sigmoid_cross_entropy(self.logits_fake, tf.ones_like(self.logits_fake))
-            self.g_loss_const_trg = tf.losses.sigmoid_cross_entropy(trg_text_oh, recon_text_oh)
+            self.g_loss_const_trg = tf.reduce_mean(tf.reduce_sum(trg_crossent * trg_mask_weight, 1))
             # self.g_loss_const_trg = tf.reduce_mean(tf.square(tf.one_hot(self.trg_texts, self.vocab_size) - self.reconst_texts_logits)) * self.rho   # TODO: do not loss content words
             self.g_loss_trg = self.g_loss_fake_trg + self.g_loss_const_trg
 

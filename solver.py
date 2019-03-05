@@ -16,7 +16,7 @@ class Solver(object):
 
     def __init__(self, model, batch_size=100, pretrain_iter=10000, train_iter=2000, sample_iter=100,
                  src_dir='src', trg_dir='trg', log_dir='logs', sample_save_path='sample',
-                 model_save_path='model', ids_save_path='ids', pretrained_model='model/src_model-20000',
+                 model_save_path='model', ids_save_path='ids', pretrained_model='model/src_model-10000',
                  test_model='model/dtn_1800'):
 
         self.model = model
@@ -60,10 +60,10 @@ class Solver(object):
 
     def _get_content_words(self):
         for w in self.word2idx:
-            if w not in self.stop_words and w not in self.semt_words and w not in ['<pad>','<unk>','<bos>','<eos>']:
-                self.content_words_mask.append(1)
-            else:
+            if w in self.stop_words or w in self.semt_words or w in ['<pad>','<unk>','<bos>','<eos>']:
                 self.content_words_mask.append(0)
+            else:
+                self.content_words_mask.append(1)
 
         assert len(self.content_words_mask) == len(self.idx2word)
 
@@ -163,7 +163,7 @@ class Solver(object):
 
             train_data = keras.preprocessing.sequence.pad_sequences(sequences=train_data,
                                                                     maxlen=self.model.max_seq_len,
-                                                                    padding='pre',
+                                                                    padding='post',
                                                                     value=0)     # self.idx2word[2] == '<pad>'
 
             train_lens = np.array(train_lens)
@@ -204,7 +204,7 @@ class Solver(object):
 
             test_data = keras.preprocessing.sequence.pad_sequences(sequences=test_data,
                                                                    maxlen=self.model.max_seq_len,
-                                                                   padding='pre',
+                                                                   padding='post',
                                                                    value=0)
             test_lens = np.array(test_lens)
 
@@ -253,7 +253,7 @@ class Solver(object):
 
             train_data = keras.preprocessing.sequence.pad_sequences(sequences=train_data,
                                                                     maxlen=self.model.max_seq_len,
-                                                                    padding='pre',
+                                                                    padding='post',
                                                                     value=0)  # self.idx2word[2] == '<pad>'
 
             train_lens = np.array(train_lens)
@@ -362,6 +362,7 @@ class Solver(object):
 
                 feed_dict = {model.texts: src_texts,
                              model.text_lens: src_text_lens,
+                             model.content_mask: self.content_words_mask,
                              model.batch_size: self.batch_size}
 
                 sess.run(model.d_train_op_src, feed_dict)
@@ -379,20 +380,20 @@ class Solver(object):
                     sess.run(model.f_train_op_src, feed_dict)
 
                 if (step+1) % 10 == 0:
-                    summary, dl, gl, fl = sess.run([model.summary_op_src,
+                    summary, dl, gl, glr, fl = sess.run([model.summary_op_src,
                                                     model.d_loss_src,
                                                     model.g_loss_src,
+                                                    model.g_loss_src_recon,
                                                     model.f_loss_src],
                                                    feed_dict)
                     summary_writer.add_summary(summary, step)
-                    print('[Source] step: [%d/%d]  d_loss: [%.6f]  g_loss: [%.6f]  f_loss:[%.6f]' %
-                          (step+1, self.train_iter, dl, gl, fl))
+                    print('[Source] step: [%d/%d]  d_loss: [%.6f]  g_loss: [%.6f]([%.6f])  f_loss:[%.6f]' %
+                          (step+1, self.train_iter, dl, gl, glr, fl))
 
 
 
                 feed_dict = {model.trg_texts: trg_texts,
                              model.trg_text_lens: trg_text_lens,
-                             model.content_mask: self.content_words_mask,
                              model.batch_size: self.batch_size}
 
                 sess.run(model.d_train_op_trg, feed_dict)
@@ -423,8 +424,8 @@ class Solver(object):
                                                      model.batch_size: 5})
                     target_id = semt_texts[rand_idx]
                     for idx in range(5):
-                        target_view = [self.idx2word[id_] for id_ in target_id[idx] if id_ != 0]
-                        sampled_view = [self.idx2word[id_] for id_ in sampled_id[idx] if id_ != 0]
+                        target_view = [self.idx2word[id_] for id_ in target_id[idx]]
+                        sampled_view = [self.idx2word[id_] for id_ in sampled_id[idx]]
                         print("[SRC VIEW-TARGET %d] %s" % (idx, " ".join(target_view)))
                         print("[SRC VIEW-SAMPLE %d] %s" % (idx, " ".join(sampled_view)))
 
@@ -436,8 +437,8 @@ class Solver(object):
                                                      model.batch_size: 5})
                     target_id = norm_texts[rand_idx]
                     for idx in range(5):
-                        target_view = [self.idx2word[id_] for id_ in target_id[idx] if id_ != 0]
-                        sampled_view = [self.idx2word[id_] for id_ in sampled_id[idx] if id_ != 0]
+                        target_view = [self.idx2word[id_] for id_ in target_id[idx]]
+                        sampled_view = [self.idx2word[id_] for id_ in sampled_id[idx]]
                         print("[TRG VIEW-TARGET %d] %s" % (idx, " ".join(target_view)))
                         print("[TRG VIEW-SAMPLE %d] %s" % (idx, " ".join(sampled_view)))
 
