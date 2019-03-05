@@ -14,7 +14,7 @@ dataset = keras.datasets.imdb
 
 class Solver(object):
 
-    def __init__(self, model, batch_size=100, pretrain_iter=20000, train_iter=2000, sample_iter=100,
+    def __init__(self, model, batch_size=100, pretrain_iter=10000, train_iter=2000, sample_iter=100,
                  src_dir='src', trg_dir='trg', log_dir='logs', sample_save_path='sample',
                  model_save_path='model', ids_save_path='ids', pretrained_model='model/src_model-20000',
                  test_model='model/dtn_1800'):
@@ -41,8 +41,6 @@ class Solver(object):
 
         self.word2idx = {}
         self.idx2word = []
-        # self.trg_word2idx = {}
-        # self.trg_idx2word = []
 
         self.stop_words, self.semt_words = [], []
         self._load_semt_words()
@@ -417,7 +415,7 @@ class Solver(object):
                     # saver.save(sess, os.path.join(self.model_save_path, 'dtn'), global_step=step+1)
                     # print('model/dtn%d saved...!' % (step+1))
 
-                    rand_idx = np.random.permutation(norm_texts.shape[0])[:5]
+                    rand_idx = np.random.permutation(semt_texts.shape[0])[:5]
 
                     sampled_id = sess.run(fetches=model.fake_texts,
                                           feed_dict={model.texts: semt_texts[rand_idx],
@@ -429,6 +427,8 @@ class Solver(object):
                         sampled_view = [self.idx2word[id_] for id_ in sampled_id[idx] if id_ != 0]
                         print("[SRC VIEW-TARGET %d] %s" % (idx, " ".join(target_view)))
                         print("[SRC VIEW-SAMPLE %d] %s" % (idx, " ".join(sampled_view)))
+
+                    rand_idx = np.random.permutation(norm_texts.shape[0])[:5]
 
                     sampled_id = sess.run(fetches=model.reconst_texts,
                                           feed_dict={model.trg_texts: norm_texts[rand_idx],

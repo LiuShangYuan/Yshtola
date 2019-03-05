@@ -24,5 +24,5 @@
     $ python main.py --mode='train'
 
 ## Reference Data Resources
-* Amazon reviews dataset: [http://jmcauley.ucsd.edu/data/amazon/](link)
-* MPQA Subjectivity Lexicon: [https://mpqa.cs.pitt.edu/lexicons/subj_lexicon/](Link)
+* Amazon reviews dataset: [http://jmcauley.ucsd.edu/data/amazon/](http://jmcauley.ucsd.edu/data/amazon/)
+* MPQA Subjectivity Lexicon: [https://mpqa.cs.pitt.edu/lexicons/subj_lexicon/](https://mpqa.cs.pitt.edu/lexicons/subj_lexicon/)
