@@ -10,8 +10,8 @@ FLAGS = flags.FLAGS
 
 def main(_):
 
-    model = DTN(mode=FLAGS.mode, learning_rate=0.0003)
-    solver = Solver(model, batch_size=100, pretrain_iter=10000, train_iter=2000,
+    model = DTN(mode=FLAGS.mode, learning_rate=0.003)
+    solver = Solver(model, batch_size=64, pretrain_iter=20000, train_iter=20000,
                     sample_iter=100, src_dir='src', trg_dir='trg',
                     model_save_path=FLAGS.model_save_path,
                     sample_save_path=FLAGS.sample_save_path)
