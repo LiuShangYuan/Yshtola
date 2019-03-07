@@ -16,7 +16,7 @@ class Solver(object):
 
     def __init__(self, model, batch_size=100, pretrain_iter=10000, train_iter=20000, sample_iter=100,
                  src_dir='src', trg_dir='trg', log_dir='logs', sample_save_path='sample',
-                 model_save_path='model', ids_save_path='ids', pretrained_model='model/src_model-20000',
+                 model_save_path='model', ids_save_path='ids', pretrained_model='model/src_model-9000',
                  test_model='model/dtn_1800'):
 
         self.model = model
@@ -471,7 +471,7 @@ class Solver(object):
             # variables_to_restore = slim.get_model_variables(scope='content_extractor')
             variables = slim.get_variables_to_restore(include=['word_vector', 'content_extractor', 'generator'], exclude=['optimizer_op_src'])
             variables = [v for v in variables if ('adam' not in v.name and 'trg_embedding' not in v.name)]
-            print("=====Attention=====\n", [var.name for var in variables],'=================')
+            print("=====Attention=====\n", [var.name for var in variables],'\n=================')
             restorer = tf.train.Saver(variables)
             restorer.restore(sess, self.pretrained_model)
             summary_writer = tf.summary.FileWriter(logdir=self.log_dir, graph=tf.get_default_graph())
@@ -479,171 +479,100 @@ class Solver(object):
 
             self._get_content_words()
 
-            print('start quickly pretrain...!')
-            for step in range(self.train_iter):
+            print('start training...!')
+            f_interval = 5
+            for step in range(self.train_iter+1):
+
                 i = step % int(semt_texts.shape[0] / self.batch_size)
-                src_texts = semt_texts[i * self.batch_size:(i + 1) * self.batch_size]
-                src_text_lens = semt_lens[i * self.batch_size:(i + 1) * self.batch_size]
+                src_texts = semt_texts[i*self.batch_size:(i+1)*self.batch_size]
+                src_text_lens = semt_lens[i*self.batch_size:(i+1)*self.batch_size]
                 feed_dict = {model.src_texts: src_texts,
                              model.src_text_lens: src_text_lens,
+                             model.content_mask: self.content_words_mask,
                              model.batch_size: self.batch_size}
-                sess.run(model.qpt_g_train_op_src, feed_dict)
 
+                sess.run(model.d_train_op_src, feed_dict)
+                sess.run(model.g_train_op_src, feed_dict)
+                sess.run(model.g_train_op_src, feed_dict)
+                sess.run(model.g_train_op_src, feed_dict)
+                sess.run(model.g_train_op_src, feed_dict)
+                sess.run(model.g_train_op_src, feed_dict)
+                sess.run(model.g_train_op_src, feed_dict)
+
+                if step > 1600:
+                    f_interval = 30
+
+                if i % f_interval == 0:
+                    sess.run(model.f_train_op_src, feed_dict)
+
+                if (step+1) % 10 == 0:
+                    summary, dl, gl, glr, fl = sess.run([model.summary_op_src,
+                                                    model.d_loss_src,
+                                                    model.g_loss_src,
+                                                    model.g_loss_src_recon,
+                                                    model.f_loss_src],
+                                                   feed_dict)
+                    summary_writer.add_summary(summary, step)
+                    print('[Source] step: [%d/%d]  d_loss: [%.6f]  g_loss: [%.6f]([%.6f])  f_loss:[%.6f]' %
+                          (step+1, self.train_iter, dl, gl, glr, fl))
+
+                # train the model for target domain T
                 j = step % int(norm_texts.shape[0] / self.batch_size)
                 trg_texts = norm_texts[j * self.batch_size:(j + 1) * self.batch_size]
                 trg_text_outs = norm_outs[j * self.batch_size:(j + 1) * self.batch_size]
                 trg_text_lens = norm_lens[j * self.batch_size:(j + 1) * self.batch_size]
+
                 feed_dict = {model.trg_texts: trg_texts,
-                             model.trg_text_outs: trg_text_outs,
                              model.trg_text_lens: trg_text_lens,
+                             model.trg_text_outs: trg_text_outs,
+                             # model.is_quick_pretrain: False,
                              model.batch_size: self.batch_size}
-                sess.run(model.qpt_g_train_op_trg, feed_dict)
 
-                if (step + 1) % 10 == 0:
-                    rand_idx = np.random.permutation(semt_texts.shape[0])[:self.batch_size]
-                    src_loss = sess.run(fetches=model.qpt_g_loss_src,
-                                        feed_dict={model.src_texts: semt_texts[rand_idx],
-                                                   model.src_text_lens: semt_lens[rand_idx],
-                                                   model.batch_size: self.batch_size})
+                sess.run(model.d_train_op_trg, feed_dict)
+                sess.run(model.d_train_op_trg, feed_dict)
+                sess.run(model.g_train_op_trg, feed_dict)
+                sess.run(model.g_train_op_trg, feed_dict)
+                sess.run(model.g_train_op_trg, feed_dict)
+                sess.run(model.g_train_op_trg, feed_dict)
 
-                    rand_idx2 = np.random.permutation(norm_texts.shape[0])[:self.batch_size]
-                    trg_loss = sess.run(fetches=model.qpt_g_loss_trg,
-                                     feed_dict={model.trg_texts: norm_texts[rand_idx2],
-                                                model.trg_text_outs: norm_outs[rand_idx2],
-                                                model.trg_text_lens: norm_lens[rand_idx2],
-                                                model.batch_size: self.batch_size})
-                    print('Step: [%d/%d]  src_loss: [%.6f]  trg_loss: [%.6f]' \
-                          % (step + 1, self.train_iter, src_loss, trg_loss))
+                if (step+1) % 10 == 0:
+                    summary, dl, gl = sess.run([model.summary_op_trg,
+                                                model.d_loss_trg,
+                                                model.g_loss_trg],
+                                               feed_dict)
+                    summary_writer.add_summary(summary, step)
+                    print('[Target] step: [%d/%d]  d_loss:[%.6f]  g_loss:[%.6f]' %
+                          (step+1, self.train_iter, dl, gl))
 
-                if (step + 1) % 1000 == 0:
+                if (step+1) % 50 == 0:
+                    # saver.save(sess, os.path.join(self.model_save_path, 'dtn'), global_step=step+1)
+                    # print('model/dtn%d saved...!' % (step+1))
+
                     rand_idx = np.random.permutation(semt_texts.shape[0])[:5]
 
-                    greedy_id, forced_id = sess.run(fetches=[model.qpt_valid_text_src, model.qpt_fake_text_src],
+                    sampled_id = sess.run(fetches=model.fake_texts,
                                           feed_dict={model.src_texts: semt_texts[rand_idx],
                                                      model.src_text_lens: semt_lens[rand_idx],
                                                      model.batch_size: 5})
                     target_id = semt_texts[rand_idx]
                     for idx in range(5):
                         target_view = [self.idx2word[id_] for id_ in target_id[idx]]
-                        sampled_view = [self.idx2word[id_] for id_ in greedy_id[idx]]
-                        forced_view = [self.idx2word[id_] for id_ in forced_id[idx]]
+                        sampled_view = [self.idx2word[id_] for id_ in sampled_id[idx]]
                         print("[SRC VIEW-TARGET %d] %s" % (idx, " ".join(target_view)))
-                        print("[SRC VIEW-FORCED %d] %s" % (idx, " ".join(forced_view)))
-                        print("[SRC VIEW-GREEDY %d] %s" % (idx, " ".join(sampled_view)))
-                        print('------------')
+                        print("[SRC VIEW-SAMPLE %d] %s" % (idx, " ".join(sampled_view)))
 
-                    rand_idx2 = np.random.permutation(norm_texts.shape[0])[:5]
+                    rand_idx = np.random.permutation(norm_texts.shape[0])[:5]
 
-                    greedy_id2, forced_id2 = sess.run(fetches=[model.qpt_valid_text_trg, model.qpt_fake_text_trg],
-                                          feed_dict={model.trg_texts: norm_texts[rand_idx2],
-                                                     model.trg_text_lens: norm_lens[rand_idx2],
+                    sampled_id = sess.run(fetches=model.reconst_texts,
+                                          feed_dict={model.trg_texts: norm_texts[rand_idx],
+                                                     model.trg_text_lens: norm_lens[rand_idx],
+                                                     model.trg_text_outs: norm_outs[rand_idx],
                                                      model.batch_size: 5})
-                    target_id2 = norm_texts[rand_idx]
+                    target_id = norm_texts[rand_idx]
                     for idx in range(5):
-                        target_view2 = [self.idx2word[id_] for id_ in target_id2[idx]]
-                        sampled_view2 = [self.idx2word[id_] for id_ in greedy_id2[idx]]
-                        forced_view2 = [self.idx2word[id_] for id_ in forced_id2[idx]]
-                        print("[TRG VIEW-TARGET %d] %s" % (idx, " ".join(target_view2)))
-                        print("[TRG VIEW-FORCED %d] %s" % (idx, " ".join(forced_view2)))
-                        print("[TRG VIEW-SAMPLE %d] %s" % (idx, " ".join(sampled_view2)))
-                        print('------------')
+                        target_view = [self.idx2word[id_] for id_ in target_id[idx]]
+                        sampled_view = [self.idx2word[id_] for id_ in sampled_id[idx]]
+                        print("[TRG VIEW-TARGET %d] %s" % (idx, " ".join(target_view)))
+                        print("[TRG VIEW-SAMPLE %d] %s" % (idx, " ".join(sampled_view)))
 
-            # print('start training...!')
-            # f_interval = 5
-            # for step in range(self.train_iter+1):
-            #
-            #     i = step % int(semt_texts.shape[0] / self.batch_size)
-            #     src_texts = semt_texts[i*self.batch_size:(i+1)*self.batch_size]
-            #     src_text_lens = semt_lens[i*self.batch_size:(i+1)*self.batch_size]
-            #     # train the model for target domain T
-            #     j = step % int(norm_texts.shape[0] / self.batch_size)
-            #     trg_texts = norm_texts[j * self.batch_size:(j + 1) * self.batch_size]
-            #     trg_text_lens = norm_lens[j * self.batch_size:(j + 1) * self.batch_size]
-            #
-            #     feed_dict = {model.texts: src_texts,
-            #                  model.text_lens: src_text_lens,
-            #                  model.content_mask: self.content_words_mask,
-            #                  # model.is_quick_pretrain: False,
-            #                  model.batch_size: self.batch_size}
-            #
-            #     sess.run(model.d_train_op_src, feed_dict)
-            #     sess.run(model.g_train_op_src, feed_dict)
-            #     sess.run(model.g_train_op_src, feed_dict)
-            #     sess.run(model.g_train_op_src, feed_dict)
-            #     sess.run(model.g_train_op_src, feed_dict)
-            #     sess.run(model.g_train_op_src, feed_dict)
-            #     sess.run(model.g_train_op_src, feed_dict)
-            #
-            #     if step > 1600:
-            #         f_interval = 30
-            #
-            #     if i % f_interval == 0:
-            #         sess.run(model.f_train_op_src, feed_dict)
-            #
-            #     if (step+1) % 10 == 0:
-            #         summary, dl, gl, glr, fl = sess.run([model.summary_op_src,
-            #                                         model.d_loss_src,
-            #                                         model.g_loss_src,
-            #                                         model.g_loss_src_recon,
-            #                                         model.f_loss_src],
-            #                                        feed_dict)
-            #         summary_writer.add_summary(summary, step)
-            #         print('[Source] step: [%d/%d]  d_loss: [%.6f]  g_loss: [%.6f]([%.6f])  f_loss:[%.6f]' %
-            #               (step+1, self.train_iter, dl, gl, glr, fl))
-            #
-            #
-            #
-            #     feed_dict = {model.trg_texts: trg_texts,
-            #                  model.trg_text_lens: trg_text_lens,
-            #                  # model.is_quick_pretrain: False,
-            #                  model.batch_size: self.batch_size}
-            #
-            #     sess.run(model.d_train_op_trg, feed_dict)
-            #     sess.run(model.d_train_op_trg, feed_dict)
-            #     sess.run(model.g_train_op_trg, feed_dict)
-            #     sess.run(model.g_train_op_trg, feed_dict)
-            #     sess.run(model.g_train_op_trg, feed_dict)
-            #     sess.run(model.g_train_op_trg, feed_dict)
-            #
-            #     if (step+1) % 10 == 0:
-            #         summary, dl, gl = sess.run([model.summary_op_trg,
-            #                                     model.d_loss_trg,
-            #                                     model.g_loss_trg],
-            #                                    feed_dict)
-            #         summary_writer.add_summary(summary, step)
-            #         print('[Target] step: [%d/%d]  d_loss:[%.6f]  g_loss:[%.6f]' %
-            #               (step+1, self.train_iter, dl, gl))
-            #
-            #     if (step+1) % 50 == 0:
-            #         # saver.save(sess, os.path.join(self.model_save_path, 'dtn'), global_step=step+1)
-            #         # print('model/dtn%d saved...!' % (step+1))
-            #
-            #         rand_idx = np.random.permutation(semt_texts.shape[0])[:5]
-            #
-            #         sampled_id = sess.run(fetches=model.fake_texts,
-            #                               feed_dict={model.texts: semt_texts[rand_idx],
-            #                                          model.text_lens: semt_lens[rand_idx],
-            #                                          # model.is_quick_pretrain: False,
-            #                                          model.batch_size: 5})
-            #         target_id = semt_texts[rand_idx]
-            #         for idx in range(5):
-            #             target_view = [self.idx2word[id_] for id_ in target_id[idx]]
-            #             sampled_view = [self.idx2word[id_] for id_ in sampled_id[idx]]
-            #             print("[SRC VIEW-TARGET %d] %s" % (idx, " ".join(target_view)))
-            #             print("[SRC VIEW-SAMPLE %d] %s" % (idx, " ".join(sampled_view)))
-            #
-            #         rand_idx = np.random.permutation(norm_texts.shape[0])[:5]
-            #
-            #         sampled_id = sess.run(fetches=model.reconst_texts,
-            #                               feed_dict={model.trg_texts: norm_texts[rand_idx],
-            #                                          model.trg_text_lens: norm_lens[rand_idx],
-            #                                          # model.is_quick_pretrain: False,
-            #                                          model.batch_size: 5})
-            #         target_id = norm_texts[rand_idx]
-            #         for idx in range(5):
-            #             target_view = [self.idx2word[id_] for id_ in target_id[idx]]
-            #             sampled_view = [self.idx2word[id_] for id_ in sampled_id[idx]]
-            #             print("[TRG VIEW-TARGET %d] %s" % (idx, " ".join(target_view)))
-            #             print("[TRG VIEW-SAMPLE %d] %s" % (idx, " ".join(sampled_view)))
-            #
-            #     self.model.rho = self.model.rho * 0.99
+
