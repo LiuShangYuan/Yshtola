@@ -429,8 +429,9 @@ class Solver(object):
                     test_acc, _ = sess.run(fetches=[model.accuracy, model.loss],
                                            feed_dict={model.texts: test_texts[rand_idx],
                                                       model.text_outs: test_outs[rand_idx],
-                                                      model.text_lens: test_lens[rand_idx],
-                                                      model.batch_size: self.batch_size})
+                                                      model.text_lens: test_src_lens[rand_idx],
+                                                      model.batch_size: self.batch_size,
+                                                      model.target_text_lens: test_lens[rand_idx]})
                     summary_writer.add_summary(summary, step)
                     print('Step: [%d/%d]  loss: [%.6f]  train acc: [%.6f]  test acc: [%.6f]' \
                           % (step+1, self.pretrain_iter, l, acc, test_acc))
@@ -443,8 +444,9 @@ class Solver(object):
                     sampled_id = sess.run(fetches=model.sampled_id,
                                           feed_dict={model.texts: test_texts[rand_idx],
                                                      model.text_outs: test_outs[rand_idx],
-                                                     model.text_lens: test_lens[rand_idx],
-                                                     model.batch_size: 5})
+                                                     model.text_lens: test_src_lens[rand_idx],
+                                                     model.batch_size: 5,
+                                                     model.target_text_lens: test_lens[rand_idx]})
                     target_id = test_outs[rand_idx]
                     for idx in range(5):
                         target_view = [self.idx2word[id_] for id_ in target_id[idx]]
