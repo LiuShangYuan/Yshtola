@@ -1,6 +1,7 @@
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 import numpy as np
+from tensorflow.python.ops.rnn_cell import LSTMStateTuple
 
 
 class DTN(object):
@@ -129,7 +130,7 @@ class DTN(object):
             with tf.variable_scope('encoder'):
                 encoder_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
                 #TODO encoder cell 改为双向LSTM
-                Construct forward and backward cells
+                # Construct forward and backward cells
                 forward_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
                 backward_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
 
@@ -141,14 +142,13 @@ class DTN(object):
                     time_major=False,
                     dtype=tf.float32)
 
-                sess = tf.Session()
-                fstate, bstate = encoder_state
-                fc, fh = fstate
-                bc, bh = bstate
-                encoder_state = tf.add(fh, bh, 1) ### 两个元组分别为: [2, batchsize, dim]
 
-                sess = tf.Session()
-                print(sess.run(encoder_state.shape))
+                fstate, bstate = encoder_state ### (前向, 后向)
+                fc, fh = fstate.c, fstate.h ### (c, h)
+                bc, bh = bstate.c, bstate.h ### (c, h)
+                biC = tf.add(fc, bc)  ### 两个元组分别为: [2, batchsize, dim]
+                biH = tf.add(fh, bh)
+                encoder_state = LSTMStateTuple(biC, biH)
 
                 # encoder_outputs, encoder_state = tf.nn.dynamic_rnn(
                 #     encoder_cell, embedding_inputs,
