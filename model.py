@@ -129,29 +129,33 @@ class DTN(object):
             with tf.variable_scope('encoder'):
                 encoder_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
                 #TODO encoder cell 改为双向LSTM
-                # Construct forward and backward cells
-                # forward_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
-                # backward_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
+                Construct forward and backward cells
+                forward_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
+                backward_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
 
-                # bi_outputs, encoder_state = tf.nn.bidirectional_dynamic_rnn(
-                #     forward_cell,
-                #     backward_cell,
-                #     embedding_inputs,
-                #     sequence_length=text_lens,
-                #     time_major=False,
-                #     dtype=tf.float32)
-                #
-                # sess = tf.Session()
-                # fstate, bstate = encoder_state
-                # fc, fh = fstate
-                # bc, bh = bstate
-                # encoder_state = tf.add(fh, bh) ### 两个元组分别为: [2, batchsize, dim]
-
-                encoder_outputs, encoder_state = tf.nn.dynamic_rnn(
-                    encoder_cell, embedding_inputs,
+                bi_outputs, encoder_state = tf.nn.bidirectional_dynamic_rnn(
+                    forward_cell,
+                    backward_cell,
+                    embedding_inputs,
                     sequence_length=text_lens,
-                    dtype=tf.float32,
-                    time_major=False)
+                    time_major=False,
+                    dtype=tf.float32)
+
+                sess = tf.Session()
+                fstate, bstate = encoder_state
+                fc, fh = fstate
+                bc, bh = bstate
+                encoder_state = tf.add(fh, bh, 1) ### 两个元组分别为: [2, batchsize, dim]
+
+                sess = tf.Session()
+                print(sess.run(encoder_state.shape))
+
+                # encoder_outputs, encoder_state = tf.nn.dynamic_rnn(
+                #     encoder_cell, embedding_inputs,
+                #     sequence_length=text_lens,
+                #     dtype=tf.float32,
+                #     time_major=False)
+
 
         return encoder_state
 
