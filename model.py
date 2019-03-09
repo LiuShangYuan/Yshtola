@@ -52,8 +52,8 @@ class DTN(object):
                         embedding_inputs = tf.nn.embedding_lookup(self.embedding, input_texts)
                     helper = tf.contrib.seq2seq.TrainingHelper(
                         embedding_inputs,
-                        self.target_text_lens,
-                        # tf.fill([self.batch_size], self.target_text_lens), #TODO decoder的length应该是知道的
+                        # self.target_text_lens,
+                        tf.fill([self.batch_size], self.target_text_lens), #TODO decoder的length应该是知道的
                         time_major=False
                     )
                 else:
