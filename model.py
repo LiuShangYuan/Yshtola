@@ -128,12 +128,24 @@ class DTN(object):
 
             with tf.variable_scope('encoder'):
                 encoder_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
+                #TODO encoder cell 改为双向LSTM
+                # Construct forward and backward cells
+                forward_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
+                backward_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
 
-                encoder_outputs, encoder_state = tf.nn.dynamic_rnn(
-                    encoder_cell, embedding_inputs,
-                    sequence_length=text_lens,
-                    dtype=tf.float32,
-                    time_major=False)
+                bi_outputs, encoder_state = tf.nn.bidirectional_dynamic_rnn(
+                    forward_cell,
+                    backward_cell,
+                    embedding_inputs,
+                    sequence_length=text_lens, time_major=False)
+
+                encoder_state = tf.concat(encoder_state, -1)
+
+                # encoder_outputs, encoder_state = tf.nn.dynamic_rnn(
+                #     encoder_cell, embedding_inputs,
+                #     sequence_length=text_lens,
+                #     dtype=tf.float32,
+                #     time_major=False)
 
         return encoder_state
 
