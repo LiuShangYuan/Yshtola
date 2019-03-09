@@ -130,13 +130,14 @@ class Solver(object):
                 print("Loading from train.ids file %s ..." % train_ids_path)
                 d_train_ids = json.load(open(train_ids_path))
 
-            train_data, train_outs, train_lens = [], [], []
+            train_data, train_outs, train_lens, src_lens = [], [], [], []
 
             for ids in d_train_ids:
                 ids = self.add_special_tokens(ids)
                 train_data.append(ids)
                 train_outs.append(ids[1:])
                 train_lens.append(len(ids) - 1)
+                src_lens.append(len(ids))
 
             train_data = keras.preprocessing.sequence.pad_sequences(sequences=train_data,
                                                                     maxlen=self.model.max_seq_len,
@@ -147,10 +148,11 @@ class Solver(object):
                                                                     padding='post',
                                                                     value=0)
             train_lens = np.array(train_lens)
+            src_lens = np.array(src_lens)
 
             print("Train data: %d sequences have been loaded." % len(train_data))
 
-            return train_data, train_lens, train_outs
+            return train_data, train_lens, train_outs, src_lens
 
         else:
             # Load test data -- for Language Model
@@ -172,13 +174,14 @@ class Solver(object):
                 print('Loading from test.ids file %s ...' % test_ids_path)
                 d_test_ids = json.load(open(test_ids_path))
 
-            test_data, test_outs, test_lens =[], [], []
+            test_data, test_outs, test_lens, src_lens =[], [], [], []
 
             for ids in d_test_ids:
                 ids = self.add_special_tokens(ids)
                 test_data.append(ids)
                 test_outs.append(ids[1:])
                 test_lens.append(len(ids) - 1)
+                src_lens.append(len(ids))
 
             test_data = keras.preprocessing.sequence.pad_sequences(sequences=test_data,
                                                                    maxlen=self.model.max_seq_len,
@@ -189,10 +192,11 @@ class Solver(object):
                                                                    padding='post',
                                                                    value=0)
             test_lens = np.array(test_lens)
+            src_lens = np.array(src_lens)
 
             print('Test data: %d sequences have been loaded.' % len(test_data))
 
-            return test_data, test_lens, test_outs
+            return test_data, test_lens, test_outs, src_lens
 
     def load_src_texts(self, split='train',
                        name='vgame',
@@ -387,8 +391,8 @@ class Solver(object):
             return test_data, test_lens, test_outs
 
     def pretrain(self):
-        train_texts, train_lens, train_outs = self.load_lm_texts(split='train')
-        test_texts, test_lens, test_outs = self.load_lm_texts(split='test')
+        train_texts, train_lens, train_outs, train_src_lens = self.load_lm_texts(split='train')
+        test_texts, test_lens, test_outs, test_src_lens = self.load_lm_texts(split='test')
 
         model = self.model
         model.build_model()
@@ -407,13 +411,16 @@ class Solver(object):
                     train_texts = train_texts[shuffle_idx]
                     train_outs = train_outs[shuffle_idx]
                     train_lens = train_lens[shuffle_idx]
+                    train_src_lens = train_src_lens[shuffle_idx]
                 batch_texts = train_texts[i*self.batch_size: (i+1)*self.batch_size]
                 batch_outs = train_outs[i*self.batch_size: (i+1)*self.batch_size]
                 batch_text_lens = train_lens[i*self.batch_size: (i+1)*self.batch_size]
+                batch_src_lens = train_src_lens[i*self.batch_size: (i+1)*self.batch_size]
                 feed_dict = {model.texts: batch_texts,
                              model.text_outs: batch_outs,
-                             model.text_lens: batch_text_lens,
-                             model.batch_size: self.batch_size}
+                             model.text_lens: batch_src_lens,
+                             model.batch_size: self.batch_size,
+                             model.target_text_lens: batch_text_lens}
                 sess.run(model.train_op, feed_dict)
 
                 if (step + 1) % 10 == 0:

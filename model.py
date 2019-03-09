@@ -52,7 +52,7 @@ class DTN(object):
                         embedding_inputs = tf.nn.embedding_lookup(self.embedding, input_texts)
                     helper = tf.contrib.seq2seq.TrainingHelper(
                         embedding_inputs,
-                        tf.fill([self.batch_size], self.max_seq_len),
+                        tf.fill([self.batch_size], self.target_text_lens), #TODO decoder的length应该是知道的
                         time_major=False
                     )
                 else:
@@ -144,6 +144,9 @@ class DTN(object):
             self.text_outs = tf.placeholder(tf.int32, [None, self.max_seq_len], 'src_outs')
             self.text_lens = tf.placeholder(tf.int32, [None,], 'src_text_lens')
             self.batch_size = tf.placeholder(tf.int32, name='batch_size')
+
+            #TODO add lens placeholder
+            self.target_text_lens = tf.placeholder(tf.int32, [None, ], 'target_text_lens')
 
             self.fx = self.content_extractor(self.texts, self.text_lens)
             self.sampled_id, self.rc_logits = self.generator(enc_states=self.fx, input_texts=self.texts, pretrain=True)

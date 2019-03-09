@@ -13,8 +13,8 @@ def prepro_amazon(maxlen=32):
     count_lm = 0
 
     # Source: VideoGames_Reviews ==> Positive
-    with open('./data/train_vg.json','w') as f_train, \
-            open('./data/test_vg.json','w') as f_test:
+    with open('./data/train_vgame.json','w') as f_train, \
+            open('./data/test_vgame.json','w') as f_test: #TODO 修改文件名
         data_vg = []
 
         for d in parse('./data/reviews_VideoGames_5.json.gz'):
@@ -37,8 +37,8 @@ def prepro_amazon(maxlen=32):
         json.dump(test_vg, f_test, ensure_ascii=False)
 
     # Target: Books_Reviews ==> Negative
-    with open('./data/train_b.json', 'w') as f_train, \
-        open('./data/test_b.json','w') as f_test:
+    with open('./data/train_book.json', 'w') as f_train, \
+        open('./data/test_book.json','w') as f_test:#TODO 修改文件名
         data_b = []
 
         for d in parse('./data/reviews_Books_5.json.gz'):
