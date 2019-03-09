@@ -137,9 +137,14 @@ class DTN(object):
                     forward_cell,
                     backward_cell,
                     embedding_inputs,
-                    sequence_length=text_lens, time_major=False)
+                    sequence_length=text_lens,
+                    time_major=False,
+                    dtype=tf.float32)
 
-                encoder_state = tf.concat(encoder_state, -1)
+                sess = tf.Session()
+                sess.run(type(encoder_state))
+                sess.run(encoder_state.shape)
+                encoder_state = tf.add(encoder_state, -1) ### [2, batchsize, dim]
 
                 # encoder_outputs, encoder_state = tf.nn.dynamic_rnn(
                 #     encoder_cell, embedding_inputs,
