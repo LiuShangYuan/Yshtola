@@ -53,7 +53,7 @@ class DTN(object):
                     helper = tf.contrib.seq2seq.TrainingHelper(
                         embedding_inputs,
                         # self.target_text_lens,
-                        tf.fill([self.batch_size], self.target_text_lens), #TODO decoder的length应该是知道的
+                        tf.fill([self.batch_size], self.max_seq_len), #TODO decoder的length应该是知道的
                         time_major=False
                     )
                 else:
