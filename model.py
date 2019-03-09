@@ -142,9 +142,10 @@ class DTN(object):
                     dtype=tf.float32)
 
                 sess = tf.Session()
-                sess.run(type(encoder_state))
-                sess.run(encoder_state.shape)
-                encoder_state = tf.add(encoder_state, -1) ### [2, batchsize, dim]
+                fstate, bstate = encoder_state
+                fc, fh = fstate
+                bc, bh = bstate
+                encoder_state = tf.add(fh, bh) ### 两个元组分别为: [2, batchsize, dim]
 
                 # encoder_outputs, encoder_state = tf.nn.dynamic_rnn(
                 #     encoder_cell, embedding_inputs,
