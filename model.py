@@ -153,7 +153,9 @@ class DTN(object):
             self.sampled_id, self.rc_logits = self.generator(enc_states=self.fx, input_texts=self.texts, pretrain=True)
             self.crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
                 labels=self.text_outs, logits=self.rc_logits)
-            mask_weight = tf.sequence_mask(self.text_lens, self.max_seq_len, dtype=tf.float32)
+
+            #TODO 这里的lens应该是target的lens
+            mask_weight = tf.sequence_mask(self.target_text_lens, self.max_seq_len, dtype=tf.float32)
 
             masked_sample_id = self.sampled_id * tf.cast(mask_weight, dtype=tf.int32)
             masked_outputs = self.text_outs * tf.cast(mask_weight, dtype=tf.int32)
