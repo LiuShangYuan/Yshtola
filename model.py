@@ -72,7 +72,7 @@ class DTN(object):
 
             decoder_cell = tf.contrib.seq2seq.AttentionWrapper(
                 decoder_cell, attention_mechanism,
-                attention_layer_size=1)
+                attention_layer_size=self.hidden_size)
 
             decoder = tf.contrib.seq2seq.BasicDecoder(
                 cell=decoder_cell,
@@ -166,11 +166,11 @@ class DTN(object):
                 # attention_states: [batch_size, max_time, num_units]
 
                 foutputs, boutputs = bi_outputs
-                attention_states = tf.add(foutputs, boutputs)
+                # attention_states = tf.add(foutputs, boutputs)
 
                 # Create an attention mechanism
                 attention_mechanism = tf.contrib.seq2seq.LuongAttention(
-                    1, attention_states,
+                    self.hidden_size, foutputs,
                     memory_sequence_length=text_lens)
 
 
