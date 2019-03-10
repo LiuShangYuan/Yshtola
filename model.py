@@ -74,10 +74,12 @@ class DTN(object):
                 decoder_cell, attention_mechanism,
                 attention_layer_size=self.hidden_size)
 
+            decoder_initial_state = decoder_cell.zero_state(self.batch_size, dtype=tf.float32)
+
             decoder = tf.contrib.seq2seq.BasicDecoder(
                 cell=decoder_cell,
                 helper=helper,
-                initial_state=enc_states,
+                initial_state=decoder_initial_state,
                 output_layer=projection_layer)
 
 
@@ -170,7 +172,7 @@ class DTN(object):
 
                 # Create an attention mechanism
                 attention_mechanism = tf.contrib.seq2seq.LuongAttention(
-                    self.hidden_size, foutputs,
+                    self.hidden_size, foutputs.h,
                     memory_sequence_length=text_lens)
 
 
@@ -183,7 +185,7 @@ class DTN(object):
             self.texts = tf.placeholder(tf.int32, [None, self.max_seq_len], 'src_texts')        # batch_size x seq_len
             self.text_outs = tf.placeholder(tf.int32, [None, self.max_seq_len], 'src_outs')
             self.text_lens = tf.placeholder(tf.int32, [None,], 'src_text_lens')
-            self.batch_size = tf.placeholder(tf.int32, name='batch_size')
+            self.batch_size = tf.placeholder(tf.int32, [],  name='batch_size')
 
             #TODO add lens placeholder
             self.target_text_lens = tf.placeholder(tf.int32, [None, ], 'target_text_lens')
