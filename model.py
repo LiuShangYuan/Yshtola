@@ -70,15 +70,17 @@ class DTN(object):
 
             projection_layer = tf.layers.Dense(self.vocab_size, use_bias=False)
 
+            decoder_cell = tf.contrib.seq2seq.AttentionWrapper(
+                decoder_cell, attention_mechanism,
+                attention_layer_size=1)
+
             decoder = tf.contrib.seq2seq.BasicDecoder(
                 cell=decoder_cell,
                 helper=helper,
                 initial_state=enc_states,
                 output_layer=projection_layer)
 
-            decoder = tf.contrib.seq2seq.AttentionWrapper(
-                decoder, attention_mechanism,
-                attention_layer_size=1)
+
 
             outputs, _, _ = tf.contrib.seq2seq.dynamic_decode(
                 decoder, maximum_iterations=self.max_seq_len)
