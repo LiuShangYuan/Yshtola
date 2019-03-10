@@ -162,7 +162,9 @@ class DTN(object):
 
                 ### 添加注意力机制
                 # attention_states: [batch_size, max_time, num_units]
-                attention_states = encoder_state
+
+                foutputs, boutputs = bi_outputs
+                attention_states = tf.add(foutputs, boutputs)
 
                 # Create an attention mechanism
                 attention_mechanism = tf.contrib.seq2seq.LuongAttention(
