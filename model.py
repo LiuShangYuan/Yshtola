@@ -40,7 +40,7 @@ class DTN(object):
                 self.embedding = tf.get_variable('embedding', [self.vocab_size, self.embedding_size])
 
 
-    def generator(self, enc_states, input_texts=None, reuse=False, pretrain=False):
+    def generator(self, enc_states, attention_mechanism, input_texts=None, reuse=False, pretrain=False):
 
         with tf.variable_scope('generator', reuse=reuse):
 
@@ -75,6 +75,10 @@ class DTN(object):
                 helper=helper,
                 initial_state=enc_states,
                 output_layer=projection_layer)
+
+            decoder = tf.contrib.seq2seq.AttentionWrapper(
+                decoder, attention_mechanism,
+                attention_layer_size=1)
 
             outputs, _, _ = tf.contrib.seq2seq.dynamic_decode(
                 decoder, maximum_iterations=self.max_seq_len)
@@ -156,8 +160,17 @@ class DTN(object):
                 #     dtype=tf.float32,
                 #     time_major=False)
 
+                ### 添加注意力机制
+                # attention_states: [batch_size, max_time, num_units]
+                attention_states = encoder_state
 
-        return encoder_state
+                # Create an attention mechanism
+                attention_mechanism = tf.contrib.seq2seq.LuongAttention(
+                    1, attention_states,
+                    memory_sequence_length=text_lens)
+
+
+        return encoder_state, attention_mechanism
 
     def build_model(self):
 
@@ -171,8 +184,8 @@ class DTN(object):
             #TODO add lens placeholder
             self.target_text_lens = tf.placeholder(tf.int32, [None, ], 'target_text_lens')
 
-            self.fx = self.content_extractor(self.texts, self.text_lens)
-            self.sampled_id, self.rc_logits = self.generator(enc_states=self.fx, input_texts=self.texts, pretrain=True)
+            self.fx, self.attention_mechanism = self.content_extractor(self.texts, self.text_lens)
+            self.sampled_id, self.rc_logits = self.generator(enc_states=self.fx, attention_mechanism=self.attention_mechanism, input_texts=self.texts, pretrain=True)
             self.crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
                 labels=self.text_outs, logits=self.rc_logits)
 
