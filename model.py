@@ -206,14 +206,8 @@ class DTN(object):
 
             # loss and train op
             self.loss = tf.reduce_mean(tf.reduce_sum(self.crossent * mask_weight, 1))
-
-            params = tf.trainable_variables()
-            gradients = tf.gradients(self.loss, params)
-            clipped_gradients, _ = tf.clip_by_global_norm(gradients, 1)
-            self.train_op = self.optimizer.apply_gradients(zip(clipped_gradients, params))
-
-            # self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
-            # self.train_op = slim.learning.create_train_op(self.loss, self.optimizer)
+            self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
+            self.train_op = slim.learning.create_train_op(self.loss, self.optimizer)
 
             # summary op
             loss_summary = tf.summary.scalar('auto_encode_loss', self.loss)
