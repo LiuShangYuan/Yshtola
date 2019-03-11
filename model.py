@@ -74,12 +74,12 @@ class DTN(object):
                 decoder_cell, attention_mechanism,
                 attention_layer_size=self.hidden_size)
 
-            # decoder_initial_state = decoder_cell.zero_state(self.batch_size, dtype=tf.float32)
+            decoder_initial_state = decoder_cell.zero_state(self.batch_size, dtype=tf.float32)
 
             decoder = tf.contrib.seq2seq.BasicDecoder(
                 cell=decoder_cell,
                 helper=helper,
-                initial_state=enc_states,
+                initial_state=decoder_initial_state,
                 output_layer=projection_layer)
 
 
@@ -206,8 +206,14 @@ class DTN(object):
 
             # loss and train op
             self.loss = tf.reduce_mean(tf.reduce_sum(self.crossent * mask_weight, 1))
-            self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
-            self.train_op = slim.learning.create_train_op(self.loss, self.optimizer)
+
+            params = tf.trainable_variables()
+            gradients = tf.gradients(self.loss, params)
+            clipped_gradients, _ = tf.clip_by_global_norm(gradients, 1)
+            self.train_op = self.optimizer.apply_gradients(zip(clipped_gradients, params))
+
+            # self.optimizer = tf.train.AdamOptimizer(self.learning_rate)
+            # self.train_op = slim.learning.create_train_op(self.loss, self.optimizer)
 
             # summary op
             loss_summary = tf.summary.scalar('auto_encode_loss', self.loss)
