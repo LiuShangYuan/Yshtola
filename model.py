@@ -44,7 +44,7 @@ class DTN(object):
 
         with tf.variable_scope('generator', reuse=reuse):
 
-            decoder_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
+            decoder_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size*2)
 
             if pretrain:
                 # If pretrain == True, use the teacher forcing policy
@@ -74,12 +74,12 @@ class DTN(object):
                 decoder_cell, attention_mechanism,
                 attention_layer_size=self.hidden_size)
 
-            decoder_initial_state = decoder_cell.zero_state(self.batch_size, dtype=tf.float32)
+            # decoder_initial_state = decoder_cell.zero_state(self.batch_size, dtype=tf.float32)
 
             decoder = tf.contrib.seq2seq.BasicDecoder(
                 cell=decoder_cell,
                 helper=helper,
-                initial_state=decoder_initial_state,
+                initial_state=enc_states,
                 output_layer=projection_layer)
 
 
@@ -154,8 +154,8 @@ class DTN(object):
                 fstate, bstate = encoder_state ### (前向, 后向)
                 fc, fh = fstate.c, fstate.h ### (c, h)
                 bc, bh = bstate.c, bstate.h ### (c, h)
-                biC = tf.add(fc, bc)  ### 两个元组分别为: [2, batchsize, dim]
-                biH = tf.add(fh, bh)
+                biC = tf.concat((fc, bc), 1)  ### 两个元组分别为: [2, batchsize, dim]
+                biH = tf.concat((fh, bh), 1)
                 encoder_state = LSTMStateTuple(biC, biH)
 
                 # encoder_outputs, encoder_state = tf.nn.dynamic_rnn(
@@ -168,11 +168,11 @@ class DTN(object):
                 # attention_states: [batch_size, max_time, num_units]
 
                 foutputs, boutputs = bi_outputs
-                # attention_states = tf.add(foutputs, boutputs)
+                attention_states = tf.concat((foutputs, boutputs), 2)
 
                 # Create an attention mechanism
-                attention_mechanism = tf.contrib.seq2seq.LuongAttention(
-                    self.hidden_size, foutputs.h,
+                attention_mechanism = tf.contrib.seq2seq.BahdanauAttention(
+                    self.hidden_size, attention_states,
                     memory_sequence_length=text_lens)
 
 
